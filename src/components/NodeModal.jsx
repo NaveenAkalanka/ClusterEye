@@ -1,3 +1,4 @@
+// src/components/NodeModal.jsx
 import { useState, useEffect, useMemo } from "react";
 import {
   doc,
@@ -41,7 +42,7 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
     return a === b;
   }
 
-  // Cluster change info / warning
+  // Subnet warning when editing
   useEffect(() => {
     if (!editMode) return;
     if (!local.cluster) return;
@@ -49,7 +50,7 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
     if (!cl?.ipAddress) return;
     if (!isSameSubnet(local.ipAddress, cl.ipAddress)) {
       setInfo(
-        `Cluster changed and IP subnet mismatch detected. Please update IP to match ${cl.ipAddress
+        `Cluster and IP subnet mismatch. IP should match ${cl.ipAddress
           .split(".")
           .slice(0, 3)
           .join(".")}.x`
@@ -57,17 +58,37 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
     } else {
       setInfo("");
     }
-  }, [local.cluster, editMode]);
+  }, [local.cluster, local.ipAddress, editMode]);
 
   /* ----------------------- SAVE ----------------------- */
   async function handleSave() {
     setError("");
     setInfo("");
 
-    if (!local.node?.trim()) return setError("Node name cannot be empty.");
+    // mandatory validations
+    if (!local.nodeId?.trim()) return setError("Node ID is required.");
+    if (!local.node?.trim()) return setError("Node name is required.");
     if (!local.cluster) return setError("Select a cluster.");
     if (!local.ipAddress || !isValidIP(local.ipAddress))
       return setError("Invalid IPv4 address format.");
+    if (!local.allocations || local.allocations.length === 0)
+      return setError("At least one disk allocation is required.");
+
+    // check for duplicate node IDs
+    try {
+      const q = query(collection(db, "nodes"), where("userId", "==", uid));
+      const snap = await getDocs(q);
+      const duplicate = snap.docs.find(
+        (d) =>
+          d.data().nodeId?.toLowerCase() === local.nodeId.trim().toLowerCase() &&
+          d.id !== local.id
+      );
+      if (duplicate)
+        return setError("This Node ID already exists. Use a unique ID.");
+    } catch (err) {
+      console.error(err);
+      return setError("Failed to check existing Node IDs.");
+    }
 
     const cl = clusters.find((c) => c.cluster === local.cluster);
     if (!cl?.ipAddress)
@@ -75,13 +96,13 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
     if (!isSameSubnet(local.ipAddress, cl.ipAddress))
       return setError(`IP not in same subnet as cluster (${cl.ipAddress}).`);
 
-    // ✅ calculate total allocated bytes
+    // calculate total allocated
     const totalAllocatedBytes = (local.allocations || []).reduce((sum, a) => {
       const gb = Number(a.allocatedGB) || 0;
       return sum + gb * 1_000_000_000;
     }, 0);
 
-    // ✅ validate allocations (safe resizing)
+    // validate allocations vs available
     for (const a of local.allocations || []) {
       const d = disks.find((x) => x.disk === a.disk);
       if (!d) return setError(`Disk ${a.disk} no longer exists.`);
@@ -96,11 +117,12 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
         );
     }
 
-    // ✅ update node
+    // update Firestore
     const nodeRef = doc(db, "nodes", local.id);
     setSaving(true);
     try {
       await updateDoc(nodeRef, {
+        nodeId: local.nodeId.trim(),
         node: local.node.trim(),
         type: local.type,
         cluster: local.cluster,
@@ -167,13 +189,13 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
     }));
   }
 
-  /* ----------------------- RENDER ----------------------- */
   const clusterLocked =
     editMode && local.allocations && local.allocations.length > 0;
 
+  /* ----------------------- RENDER ----------------------- */
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl border border-white/10 w-full max-w-xl p-4 overflow-y-auto max-h-[90vh]">
+      <div className="bg-gray-900 rounded-2xl border border-white/10 w-full max-w-xl p-5 overflow-y-auto max-h-[90vh]">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xl font-semibold">
             {editMode ? "Edit Node" : `Node: ${local.node}`}
@@ -198,6 +220,14 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
         )}
 
         <div className="space-y-3">
+          <Field label="Node ID">
+            <input
+              disabled={!editMode}
+              value={local.nodeId || ""}
+              onChange={(e) => setLocal({ ...local, nodeId: e.target.value })}
+              className="input"
+            />
+          </Field>
           <Field label="Node Name">
             <input
               disabled={!editMode}
@@ -218,7 +248,6 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
             </select>
           </Field>
 
-          {/* Cluster – disabled when allocations exist */}
           <Field label="Cluster">
             <select
               disabled={!editMode || clusterLocked}
@@ -260,13 +289,16 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
               className="input"
             />
           </Field>
+
           <Field label="Password">
             <div className="relative">
               <input
                 type={showPass ? "text" : "password"}
                 disabled={!editMode}
                 value={local.password || ""}
-                onChange={(e) => setLocal({ ...local, password: e.target.value })}
+                onChange={(e) =>
+                  setLocal({ ...local, password: e.target.value })
+                }
                 className="input pr-10"
               />
               <button
@@ -290,7 +322,6 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
 
           <hr className="border-white/10" />
 
-          {/* Allocations */}
           <div>
             <div className="flex justify-between items-center mb-2">
               <div className="text-white/80 font-medium">Allocations</div>
@@ -308,46 +339,43 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
               <div className="text-white/60">No allocations.</div>
             )}
 
-            {local.allocations?.map((a, i) => {
-              const filteredDisks = clusterDisks;
-              return (
-                <div key={i} className="flex flex-wrap gap-2 items-center mt-1">
-                  <select
-                    disabled={!editMode}
-                    value={a.disk}
-                    onChange={(e) => changeAlloc(i, "disk", e.target.value)}
-                    className="input"
+            {local.allocations?.map((a, i) => (
+              <div key={i} className="flex flex-wrap gap-2 items-center mt-1">
+                <select
+                  disabled={!editMode}
+                  value={a.disk}
+                  onChange={(e) => changeAlloc(i, "disk", e.target.value)}
+                  className="input"
+                >
+                  <option value="">Select disk</option>
+                  {clusterDisks.map((d) => {
+                    const freeGB = (d.free || 0) / 1_000_000_000;
+                    return (
+                      <option key={d.id} value={d.disk}>
+                        {d.disk} ({freeGB.toFixed(1)} GB free)
+                      </option>
+                    );
+                  })}
+                </select>
+                <input
+                  type="number"
+                  disabled={!editMode}
+                  value={a.allocatedGB}
+                  onChange={(e) =>
+                    changeAlloc(i, "allocatedGB", Number(e.target.value))
+                  }
+                  className="w-32 input"
+                />
+                {editMode && (
+                  <button
+                    onClick={() => removeAlloc(i)}
+                    className="px-3 py-2 rounded-lg bg-red-600/70 hover:bg-red-600"
                   >
-                    <option value="">Select disk</option>
-                    {filteredDisks.map((d) => {
-                      const freeGB = (d.free || 0) / 1_000_000_000;
-                      return (
-                        <option key={d.id} value={d.disk}>
-                          {d.disk} ({freeGB.toFixed(1)} GB free)
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <input
-                    type="number"
-                    disabled={!editMode}
-                    value={a.allocatedGB}
-                    onChange={(e) =>
-                      changeAlloc(i, "allocatedGB", Number(e.target.value))
-                    }
-                    className="w-32 input"
-                  />
-                  {editMode && (
-                    <button
-                      onClick={() => removeAlloc(i)}
-                      className="px-3 py-2 rounded-lg bg-red-600/70 hover:bg-red-600"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 

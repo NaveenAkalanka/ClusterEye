@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Speedometer, HardDrives, ShareNetwork, Disc, Network } from "@phosphor-icons/react"; // Importing Phosphor icons
+import { Speedometer, HardDrives, ShareNetwork, Disc, Network, Cube } from "@phosphor-icons/react"; // Importing Phosphor icons
 
 export default function Navbar({ user }) {
   const [showMenu, setShowMenu] = useState(false); // To toggle the profile menu
@@ -62,6 +62,7 @@ export default function Navbar({ user }) {
           <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={32} className="text-[#69639E]" />} isActive={isActive("/clusters")} />
           <NavItem label="Disks" to="/disks" icon={<Disc size={32} className="text-[#69639E]" />} isActive={isActive("/disks")} />
           <NavItem label="Network" to="/network" icon={<Network size={32} className="text-[#69639E]" />} isActive={isActive("/network")} />
+          <NavItem label="Docker" to="/docker" icon={<Cube size={32} className="text-[#69639E]" />} isActive={isActive("/docker")} />
         </div>
 
         {/* Mobile Sidebar Icon */}
@@ -146,6 +147,7 @@ export default function Navbar({ user }) {
             <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={32} className="text-[#69639E]" />} isActive={isActive("/clusters")} className="bg-white/5 w-full text-center" />
             <NavItem label="Disks" to="/disks" icon={<Disc size={32} className="text-[#69639E]" />} isActive={isActive("/disks")} className="bg-white/5 w-full text-center" />
             <NavItem label="Network" to="/network" icon={<Network size={32} className="text-[#69639E]" />} isActive={isActive("/network")} className="bg-white/5 w-full text-center" />
+            <NavItem label="Docker" to="/docker" icon={<Cube size={32} className="text-[#69639E]" />} isActive={isActive("/docker")} className="bg-white/5 w-full text-center" />
           </div>
         </div>
       )}

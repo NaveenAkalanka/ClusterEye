@@ -9,6 +9,7 @@ import Nodes from "./pages/Nodes";
 import Clusters from "./pages/Clusters";
 import Disks from "./pages/Disks";
 import Network from "./pages/Network";
+import Docker from "./pages/Docker";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/clusters" element={<Clusters />} />
           <Route path="/disks" element={<Disks />} />
           <Route path="/network" element={<Network />} />
+          <Route path="/docker" element={<Docker />} />
         </Routes>
       </div>
     </Router>
