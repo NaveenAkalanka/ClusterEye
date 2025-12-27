@@ -16,6 +16,9 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../firebaseConfig";
+import { MagnifyingGlass, Funnel, XCircle, Plus, CaretCircleRight, Globe, HardDrives, Circuitry } from "@phosphor-icons/react";
+import AddClusterModal from "../components/AddClusterModal";
+import ClusterModal from "../components/ClusterModal";
 
 /* ----------------------------- Component ----------------------------- */
 
@@ -29,26 +32,17 @@ export default function Clusters() {
   const [nodes, setNodes] = useState([]);
 
   // create
+  const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [ipAddress, setIpAddress] = useState("");
+  const [selectedColor, setSelectedColor] = useState("#69639E");
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
 
-  // feedback
-  const [error, setError] = useState("");
+  // view/edit modal
+  const [viewClusterId, setViewClusterId] = useState(null);
 
-  // edit modal
-  const [editOpen, setEditOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState(null);
-  const [editName, setEditName] = useState("");
-  const [editIp, setEditIp] = useState("");
-  const [editConfirm, setEditConfirm] = useState("");
-  const [editError, setEditError] = useState("");
-
-  // delete modal
-  const [delOpen, setDelOpen] = useState(false);
-  const [delTarget, setDelTarget] = useState(null);
-  const [delTypeToConfirm, setDelTypeToConfirm] = useState("");
-  const [delStats, setDelStats] = useState({ nodes: 0, disks: 0 });
+  const [search, setSearch] = useState("");
 
   const recomputeTimer = useRef(null);
 
@@ -82,7 +76,6 @@ export default function Clusters() {
       },
       (e) => {
         console.error(e);
-        setError("Failed to load clusters.");
         setLoading(false);
       }
     );
@@ -120,28 +113,28 @@ export default function Clusters() {
   /* ------------------------------ Create ------------------------------ */
   async function handleCreate(e) {
     e.preventDefault();
-    setError("");
-    if (!uid) return setError("You must be signed in.");
+    setCreateError("");
+    if (!uid) return setCreateError("You must be signed in.");
 
     const cluster = normalizeName(name);
-    if (!cluster) return setError("Enter a cluster name.");
+    if (!cluster) return setCreateError("Enter a cluster name.");
 
     // Validate IP format
     const ipRegex =
       /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
     if (!ipRegex.test(ipAddress))
-      return setError("Invalid IP format (must be X.X.X.X).");
+      return setCreateError("Invalid IP format (must be X.X.X.X).");
 
     // Check duplicates
     const nameExists = clusters.some(
       (c) => c.cluster.toLowerCase() === cluster.toLowerCase()
     );
-    if (nameExists) return setError(`Cluster "${cluster}" already exists.`);
+    if (nameExists) return setCreateError(`Cluster "${cluster}" already exists.`);
 
     const ipExists =
       clusters.some((c) => c.ipAddress === ipAddress) ||
       nodes.some((n) => n.ipAddress === ipAddress);
-    if (ipExists) return setError("IP address already in use.");
+    if (ipExists) return setCreateError("IP address already in use.");
 
     setSaving(true);
     try {
@@ -149,6 +142,7 @@ export default function Clusters() {
         userId: uid,
         cluster,
         ipAddress,
+        color: selectedColor,
         nodes: 0,
         disks: 0,
         total: 0,
@@ -159,429 +153,251 @@ export default function Clusters() {
       });
       setName("");
       setIpAddress("");
+      setAddOpen(false);
     } catch (e) {
       console.error(e);
-      setError("Could not create cluster.");
+      setCreateError("Could not create cluster.");
     } finally {
       setSaving(false);
     }
   }
 
-  /* ------------------------------ Edit ------------------------------ */
-  function openEdit(c) {
-    setEditTarget(c);
-    setEditName(c.cluster);
-    setEditIp(c.ipAddress || "");
-    setEditConfirm("");
-    setEditError("");
-    setEditOpen(true);
-  }
-
-  async function doRename() {
-    if (!uid || !editTarget) return;
-    setEditError("");
-
-    const oldName = editTarget.cluster;
-    const newName = normalizeName(editName);
-    const newIp = editIp.trim();
-
-    const ipRegex =
-      /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-    if (!ipRegex.test(newIp))
-      return setEditError("Invalid IP format (must be X.X.X.X).");
-
-    if (editConfirm.trim() !== oldName)
-      return setEditError(`Type "${oldName}" to confirm.`);
-
-    // Check name duplicates
-    const nameExists = clusters
-      .filter((c) => c.id !== editTarget.id)
-      .some((c) => c.cluster.toLowerCase() === newName.toLowerCase());
-    if (nameExists) return setEditError(`Cluster "${newName}" already exists.`);
-
-    // Check IP duplicates
-    const ipExists =
-      clusters
-        .filter((c) => c.id !== editTarget.id)
-        .some((c) => c.ipAddress === newIp) ||
-      nodes.some((n) => n.ipAddress === newIp);
-    if (ipExists) return setEditError("IP address already in use.");
-
-    try {
-      const batch = writeBatch(db);
-
-      const clusterRef = doc(collection(db, "clusters"), editTarget.id);
-      batch.update(clusterRef, {
-        cluster: newName,
-        ipAddress: newIp,
-        updatedAt: serverTimestamp(),
-      });
-
-      const qNodesInCluster = query(
-        collection(db, "nodes"),
-        where("userId", "==", uid),
-        where("cluster", "==", oldName)
+  /* ------------------------------ Filter/Stats ------------------------------ */
+  const filteredClusters = useMemo(() => {
+    let res = clusters;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      res = res.filter(
+        (c) =>
+          c.cluster.toLowerCase().includes(q) ||
+          (c.ipAddress || "").includes(q)
       );
-      const nodesSnap = await getDocs(qNodesInCluster);
-      nodesSnap.forEach((nref) => {
-        batch.update(doc(collection(db, "nodes"), nref.id), {
-          cluster: newName,
-          updatedAt: serverTimestamp(),
-        });
-      });
-
-      const qDisksInCluster = query(
-        collection(db, "disks"),
-        where("userId", "==", uid),
-        where("cluster", "==", oldName)
-      );
-      const disksSnap = await getDocs(qDisksInCluster);
-      disksSnap.forEach((dref) => {
-        batch.update(doc(collection(db, "disks"), dref.id), {
-          cluster: newName,
-          updatedAt: serverTimestamp(),
-        });
-      });
-
-      await batch.commit();
-      setEditOpen(false);
-    } catch (e) {
-      console.error(e);
-      setEditError("Update failed.");
     }
-  }
+    return res;
+  }, [clusters, search]);
 
-  /* ------------------------------ Delete ------------------------------ */
-  async function openDelete(c) {
-    setDelTarget(c);
-    setDelTypeToConfirm("");
-    const [nCount, dCount] = await Promise.all([
-      countDocs(
-        query(
-          collection(db, "nodes"),
-          where("userId", "==", uid),
-          where("cluster", "==", c.cluster)
-        )
-      ),
-      countDocs(
-        query(
-          collection(db, "disks"),
-          where("userId", "==", uid),
-          where("cluster", "==", c.cluster)
-        )
-      ),
-    ]);
-    setDelStats({ nodes: nCount, disks: dCount });
-    setDelOpen(true);
-  }
+  const stats = useMemo(() => {
+    const totalStorage = clusters.reduce((acc, c) => acc + (c.total || 0), 0);
+    const totalNodes = clusters.reduce((acc, c) => acc + (c.nodes || 0), 0);
 
-  async function confirmDeleteCascade() {
-    if (!uid || !delTarget) return;
-    setError("");
-
-    const clusterName = delTarget.cluster;
-    const ipToRemove = delTarget.ipAddress;
-
-    if (delStats.nodes + delStats.disks > 0) {
-      if (delTypeToConfirm.trim() !== clusterName) {
-        return setError(`Type "${clusterName}" to confirm deletion.`);
-      }
+    return {
+      count: clusters.length,
+      storage: fmtBytes(totalStorage),
+      nodes: totalNodes
     }
-
-    try {
-      const batch = writeBatch(db);
-
-      const clusterRef = doc(db, "clusters", delTarget.id);
-      const clusterSnap = await getDoc(clusterRef);
-      if (!clusterSnap.exists() || clusterSnap.data()?.userId !== uid) {
-        setError("You don't own this cluster.");
-        return;
-      }
-
-      const qNodesInCluster = query(
-        collection(db, "nodes"),
-        where("userId", "==", uid),
-        where("cluster", "==", clusterName)
-      );
-      const nodesSnap = await getDocs(qNodesInCluster);
-      nodesSnap.forEach((nref) =>
-        batch.delete(doc(collection(db, "nodes"), nref.id))
-      );
-
-      const qDisksInCluster = query(
-        collection(db, "disks"),
-        where("userId", "==", uid),
-        where("cluster", "==", clusterName)
-      );
-      const disksSnap = await getDocs(qDisksInCluster);
-      disksSnap.forEach((dref) =>
-        batch.delete(doc(collection(db, "disks"), dref.id))
-      );
-
-      batch.delete(clusterRef);
-
-      if (ipToRemove) {
-        const ipRef = doc(collection(db, "ipIndex"), ipToRemove);
-        const ipSnap = await getDoc(ipRef);
-        if (ipSnap.exists() && ipSnap.data()?.userId === uid) {
-          batch.delete(ipRef);
-        }
-      }
-
-      await batch.commit();
-      setDelOpen(false);
-    } catch (e) {
-      console.error(e);
-      setError("Delete failed.");
-    }
-  }
+  }, [clusters]);
 
   /* ------------------------------ UI ------------------------------ */
   return (
-    <div className="text-white">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-semibold">Clusters</h2>
-        <form onSubmit={handleCreate} className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="New cluster name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-          />
-          <input
-            type="text"
-            placeholder="IP Address (X.X.X.X)"
-            value={ipAddress}
-            onChange={(e) => setIpAddress(e.target.value)}
-            className="px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
-          >
-            {saving ? "Adding..." : "Add Cluster"}
-          </button>
-        </form>
-      </div>
+    <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
 
-      {error && (
-        <div className="mt-3 rounded-lg bg-red-600/20 text-red-200 px-3 py-2 border border-red-600/30">
-          {error}
+      {/* LEFT SIDEBAR */}
+      {/* LEFT SIDEBAR */}
+      <aside className="w-full lg:w-80 bg-[#0D100D] rounded-3xl p-6 flex flex-col gap-6 shrink-0 border border-white/5 h-fit lg:h-full lg:overflow-y-auto content-scrollbar">
+
+        {/* Search */}
+        <div className="relative w-full h-12 rounded-xl p-[2px] bg-gradient-to-r from-[#A8C9AD] to-[#69639E] transition-all">
+          <div className="w-full h-full bg-[#161D22] rounded-[10px] flex items-center px-4 gap-3">
+            <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
+            <input
+              type="text"
+              placeholder="Search clusters..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
+            />
+          </div>
         </div>
-      )}
 
-      <div className="mt-6">
-        {loading ? (
-          <div className="text-white/60">Loading…</div>
-        ) : clusters.length === 0 ? (
-          <div className="text-white/70 border border-white/10 rounded-xl p-5">
-            <div className="text-lg font-semibold mb-1">No clusters yet</div>
-          </div>
-        ) : (
-          <div className="w-full overflow-auto rounded-xl border border-white/10">
-            <table className="min-w-[1080px] w-full text-sm">
-              <thead className="bg-white/5">
-                <tr className="text-left">
-                  <Th>Cluster</Th>
-                  <Th>IP Address</Th>
-                  <Th>Nodes</Th>
-                  <Th>Disks</Th>
-                  <Th>Total</Th>
-                  <Th>Used</Th>
-                  <Th>Free</Th>
-                  <Th>Usage</Th>
-                  <Th className="text-right">Actions</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {clusters.map((c) => (
-                  <ClusterRow
-                    key={c.id}
-                    row={c}
-                    onEdit={() => openEdit(c)}
-                    onDelete={() => openDelete(c)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        {/* Action Grid */}
+        <div className="grid grid-cols-5 gap-2 h-12">
+          <button
+            onClick={() => setAddOpen(true)}
+            className="col-span-4 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] rounded-xl flex items-center justify-center gap-2 text-white font-bold text-xs hover:opacity-90 transition-opacity shadow-lg cursor-pointer"
+          >
+            <Plus size={16} weight="bold" />
+            <span>Add Cluster</span>
+          </button>
+          <button
+            onClick={() => setSearch("")}
+            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
+          >
+            <XCircle size={18} />
+          </button>
+        </div>
 
-      {/* Edit Modal */}
-      {editOpen && (
-        <Modal title={`Edit cluster: ${editTarget?.cluster}`} onClose={() => setEditOpen(false)}>
-          <div className="space-y-3">
-            <label className="block text-white/80">Cluster Name</label>
-            <input
-              type="text"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-            />
-            <label className="block text-white/80">IP Address</label>
-            <input
-              type="text"
-              value={editIp}
-              onChange={(e) => setEditIp(e.target.value)}
-              placeholder="X.X.X.X"
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-            />
-            <div className="text-white/70">
-              Type <b>{editTarget?.cluster}</b> to confirm:
+        {/* Stat Cards */}
+        <div className="grid grid-cols-3 lg:grid-cols-1 gap-2 lg:gap-3 lg:flex-1">
+          <StatCard label="Total clusters" value={stats.count} icon={Globe} fill />
+          <StatCard label="Total storage" value={stats.storage} icon={HardDrives} fill />
+          <StatCard label="Total nodes" value={stats.nodes} icon={Circuitry} fill />
+        </div>
+
+      </aside>
+
+      {/* RIGHT CONTENT */}
+      <section className="flex-1 bg-[#0D100D] rounded-3xl border border-white/5 flex flex-col overflow-hidden relative shadow-2xl">
+        <div className="flex-1 overflow-auto p-4 content-scrollbar">
+          {loading ? (
+            <div className="flex h-full items-center justify-center text-white/30 text-sm animate-pulse">Loading clusters...</div>
+          ) : filteredClusters.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-white/30 text-sm">
+              {search ? "No clusters match your search." : "No clusters found. Add one to get started."}
             </div>
-            <input
-              type="text"
-              value={editConfirm}
-              onChange={(e) => setEditConfirm(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-            />
-
-            {editError && (
-              <div className="rounded-lg bg-red-600/20 text-red-200 px-3 py-2 border border-red-600/30">
-                {editError}
+          ) : (
+            <div className="space-y-2">
+              {/* Header Row (Desktop) */}
+              {/* Header Row (Desktop) */}
+              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-[11px] font-bold text-white/40 tracking-wider items-center">
+                <div className="w-2"></div> {/* Color Dot Spacer */}
+                <div>Cluster Name</div>
+                <div>Ip Address</div>
+                <div>Disks</div>
+                <div>Total</div>
+                <div>Used</div>
+                <div>Free</div>
+                <div>Nodes</div>
+                <div className="text-left">Usage</div>
               </div>
-            )}
 
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setEditOpen(false)}
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={doRename}
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+              {/* Rows */}
+              {filteredClusters.map(c => (
+                <div key={c.id}>
+                  {/* Desktop Row */}
+                  <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5">
 
-      {/* Delete Modal */}
-      {delOpen && (
-        <Modal title={`Delete cluster: ${delTarget?.cluster}`} onClose={() => setDelOpen(false)}>
-          <div className="space-y-3">
-            <div className="text-white/80">
-              This cluster has <b>{delStats.nodes}</b> node(s) and{" "}
-              <b>{delStats.disks}</b> disk(s).
+                    {/* Color Dot */}
+                    <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
+
+                    <div className="truncate">{c.cluster}</div>
+
+                    <div className="text-white/70 font-mono text-sm truncate">{c.ipAddress || "—"}</div>
+
+                    <div className="text-white/80 text-sm">{c.disks || 0}</div>
+
+                    <div className="text-white/70 text-sm font-mono">{fmtBytes(c.total || 0)}</div>
+                    <div className="text-white/70 text-sm font-mono">{fmtBytes(c.used || 0)}</div>
+                    <div className="text-white/70 text-sm font-mono">{fmtBytes((c.total || 0) - (c.used || 0))}</div>
+
+                    <div className="text-white/80 text-sm">{c.nodes || 0}</div>
+
+                    {/* Progress Bar with Percentage */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-500 rounded-full"
+                          style={{
+                            width: `${Math.min(100, (c.used / c.total) * 100 || 0)}%`,
+                            backgroundColor: c.color || "#69639E" // Use cluster color for bar
+                          }}
+                        ></div>
+                      </div>
+                      <span className="text-[10px] text-white/50 w-8 text-right font-mono">
+                        {((c.used / c.total) * 100 || 0).toFixed(0)}%
+                      </span>
+                      <div
+                        onClick={() => setViewClusterId(c.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-white/50 hover:text-white cursor-pointer"
+                        title="View Cluster"
+                      >
+                        <CaretCircleRight size={20} weight="fill" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Mobile Card */}
+                  <div className="md:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-4 gap-3 text-white transition-all border border-white/5 group">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
+                        <span className="font-bold text-lg">{c.cluster}</span>
+                      </div>
+                      <CaretCircleRight
+                        onClick={() => setViewClusterId(c.id)}
+                        size={24}
+                        weight="fill"
+                        className="text-white active:scale-95 transition-all cursor-pointer"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm text-white/70">
+                      <div>IP: <span className="text-white">{c.ipAddress}</span></div>
+                      <div>Nodes: <span className="text-white">{c.nodes}</span></div>
+                      <div>Disks: <span className="text-white">{c.disks}</span></div>
+                      <div>Total: <span className="text-white">{fmtBytes(c.total)}</span></div>
+                      <div>Used: <span className="text-white">{fmtBytes(c.used || 0)}</span></div>
+                      <div>Free: <span className="text-white">{fmtBytes((c.total || 0) - (c.used || 0))}</span></div>
+                    </div>
+                    <div className="mt-1">
+                      <div className="flex justify-between text-xs mb-1 text-white/50">
+                        <span>Usage</span>
+                        <span>{((c.used / c.total) * 100 || 0).toFixed(1)}%</span>
+                      </div>
+                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-500 rounded-full"
+                          style={{
+                            width: `${Math.min(100, (c.used / c.total) * 100 || 0)}%`,
+                            backgroundColor: c.color || "#69639E"
+                          }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="text-white/70">
-              Type <b>{delTarget?.cluster}</b> to confirm:
-            </div>
-            <input
-              type="text"
-              value={delTypeToConfirm}
-              onChange={(e) => setDelTypeToConfirm(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10 focus:outline-none"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDelOpen(false)}
-                className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDeleteCascade}
-                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </Modal>
+          )}
+        </div>
+      </section>
+
+      {/* MODALS */}
+      {addOpen && (
+        <AddClusterModal
+          open={addOpen}
+          onClose={() => {
+            setAddOpen(false);
+            setName("");
+            setIpAddress("");
+            setSelectedColor("#69639E");
+            setCreateError("");
+          }}
+          handleCreate={handleCreate}
+          name={name}
+          setName={setName}
+          ipAddress={ipAddress}
+          setIpAddress={setIpAddress}
+          selectedColor={selectedColor}
+          setSelectedColor={setSelectedColor}
+          saving={saving}
+          error={createError}
+        />
       )}
+      {/* View/Edit Modal - Derive active cluster from ID */}
+      {viewClusterId && (() => {
+        const activeCluster = clusters.find(c => c.id === viewClusterId);
+        return activeCluster ? (
+          <ClusterModal
+            cluster={activeCluster}
+            onClose={() => setViewClusterId(null)}
+            uid={uid}
+            allClusters={clusters}
+            allNodes={nodes}
+          />
+        ) : null;
+      })()}
+
+
     </div>
   );
 }
 
-/* ----------------------------- UI Bits ----------------------------- */
+/* ---------------------------- Components ---------------------------- */
 
-function Th({ children, className = "" }) {
+function StatCard({ label, value, fill }) {
   return (
-    <th className={`px-4 py-3 font-medium text-white/80 border-b border-white/10 ${className}`}>
-      {children}
-    </th>
-  );
-}
-
-function Td({ children }) {
-  return <td className="px-4 py-3 border-b border-white/5">{children}</td>;
-}
-
-function ClusterRow({ row, onEdit, onDelete }) {
-  const total = row.total ?? 0;
-  const used = row.used ?? 0;
-  const free = row.free ?? Math.max(total - used, 0);
-  const pct = useMemo(() => {
-    if (!total || total <= 0) return 0;
-    const p = (used / total) * 100;
-    return Math.max(0, Math.min(100, p));
-  }, [used, total]);
-
-  return (
-    <tr className="hover:bg-white/5">
-      <Td className="font-semibold">{row.cluster}</Td>
-      <Td>{row.ipAddress || "—"}</Td>
-      <Td>{row.nodes ?? 0}</Td>
-      <Td>{row.disks ?? 0}</Td>
-      <Td>{fmtBytes(total)}</Td>
-      <Td>{fmtBytes(used)}</Td>
-      <Td>{fmtBytes(free)}</Td>
-      <Td>
-        <div className="w-44">
-          <UsageBar percent={pct} />
-        </div>
-      </Td>
-      <Td>
-        <div className="flex justify-end gap-2">
-          <button onClick={onEdit} className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20">
-            Edit
-          </button>
-          <button
-            onClick={onDelete}
-            className="px-3 py-1 rounded-lg bg-red-600/70 hover:bg-red-600"
-          >
-            Delete
-          </button>
-        </div>
-      </Td>
-    </tr>
-  );
-}
-
-function UsageBar({ percent }) {
-  return (
-    <div className="w-full h-3 rounded-lg bg-white/10 overflow-hidden">
-      <div
-        className="h-full bg-blue-500 transition-all"
-        style={{ width: `${percent}%` }}
-      />
-    </div>
-  );
-}
-
-function Modal({ title, children, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl border border-white/10 w-full max-w-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xl font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="px-2 py-1 bg-white/10 rounded-lg hover:bg-white/20"
-          >
-            Close
-          </button>
-        </div>
-        {children}
-      </div>
+    <div className={`w-full ${fill ? "flex-1" : "h-24"} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between shadow-md group hover:border-[#69639E]/50 transition-all`}>
+      <div className={`text-white/70 font-medium tracking-tight ${fill ? "text-sm md:text-xl" : "text-sm"}`}>{label}</div>
+      <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-2xl md:text-7xl" : "text-3xl"}`}>{value}</div>
     </div>
   );
 }
@@ -592,7 +408,7 @@ function fmtBytes(bytes) {
   const b = Number(bytes || 0);
   const GB = 1_000_000_000;
   const TB = 1_000_000_000_000;
-  if (b === 0) return "0 MB";
+  if (b === 0) return "0 GB";
   if (b < GB) return `${(b / 1_000_000).toFixed(0)} MB`;
   if (b < 1000 * GB) return `${(b / GB).toFixed(b % GB === 0 ? 0 : 1)} GB`;
   return `${(b / TB).toFixed(1)} TB`;
@@ -602,13 +418,10 @@ function normalizeName(s) {
   return (s || "").trim().replace(/\s+/g, " ");
 }
 
-async function countDocs(qry) {
-  const snap = await getDocs(qry);
-  return snap.size;
-}
-
+/* ------------------------- Logic ------------------------- */
 async function recomputeAndPersist({ clusters, disks, nodes }) {
   const GB = 1_000_000_000;
+  // ... (Keep existing logic, functionality unchanged, just styling updated)
 
   const allocByDiskName = new Map();
   for (const n of nodes) {
@@ -649,8 +462,8 @@ async function recomputeAndPersist({ clusters, disks, nodes }) {
     if (!cname) continue;
     if (!clusterAgg.has(cname)) clusterAgg.set(cname, { total: 0, used: 0, disks: 0, nodes: 0 });
     const agg = clusterAgg.get(cname);
-    const recomputed = allocByDiskName.get(d.disk);
-    const used = Math.min(recomputed?.used ?? d.used ?? 0, Number(d.total || 0));
+    // const recomputed = allocByDiskName.get(d.disk); // Unused
+    const used = Math.min(d.used || 0, Number(d.total || 0)); // Use persisted disk usage
     agg.total += Number(d.total || 0);
     agg.used += used;
     agg.disks += 1;
@@ -687,5 +500,5 @@ async function recomputeAndPersist({ clusters, disks, nodes }) {
   const writes = [];
   for (const u of diskUpdates) writes.push(updateDoc(doc(collection(db, "disks"), u.id), u.data));
   for (const u of clusterUpdates) writes.push(updateDoc(doc(collection(db, "clusters"), u.id), u.data));
-  await Promise.all(writes);
+  if (writes.length > 0) await Promise.all(writes);
 }

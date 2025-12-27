@@ -2,103 +2,79 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Speedometer, HardDrives, ShareNetwork, Disc, Network, Cube } from "@phosphor-icons/react"; // Importing Phosphor icons
+import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut } from "@phosphor-icons/react"; // Importing Phosphor icons
 
 export default function Navbar({ user }) {
-  const [showMenu, setShowMenu] = useState(false); // To toggle the profile menu
-  const [showProfileModal, setShowProfileModal] = useState(false); // To toggle profile modal visibility
-  const [showSidebar, setShowSidebar] = useState(false); // To toggle sidebar on mobile
-  const sidebarRef = useRef(null); // Ref for the sidebar
-  const menuRef = useRef(null); // Ref for the dropdown menu
-  const navigate = useNavigate(); // To navigate on Logout
-  const location = useLocation(); // Get the current route
+  const [showMenu, setShowMenu] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const sidebarRef = useRef(null);
+  const menuRef = useRef(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // Logout function
   const handleLogout = async () => {
     await signOut(auth);
-    setShowMenu(false); // Close menu after logout
+    setShowMenu(false);
   };
 
-  // Get the first letter of the email (initials)
   const getUserInitials = user?.email?.[0]?.toUpperCase() || "U";
-
-  // Determine the current active page
   const isActive = (path) => location.pathname === path;
 
-  // Handle click outside the menu to close the dropdown
   const handleClickOutside = (e) => {
     if (menuRef.current && !menuRef.current.contains(e.target)) {
-      setShowMenu(false); // Close menu when clicking outside
+      setShowMenu(false);
     }
-
-    // Close sidebar if clicked outside of it
     if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
-      setShowSidebar(false); // Close sidebar
+      setShowSidebar(false);
     }
   };
 
-  // Adding event listener to handle clicks outside the dropdown and sidebar
   useEffect(() => {
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside); // Clean up the listener
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Toggle Sidebar for mobile
   const toggleSidebar = () => setShowSidebar(!showSidebar);
 
   return (
     <>
-      <div className="w-full h-24 bg-[#0D100D] rounded-[20px] relative flex items-center justify-between px-6 md:px-10">
-        {/* Logo (click to go to Dashboard/Home) */}
-        <Link to="/" className="flex items-center gap-3">
-          <img src="src/assets/ClusterEye.svg" alt="ClusterEye Logo" className="w-14 h-14 md:w-12 md:h-12" />
-          <div className="text-white text-4xl font-bold tracking-widest text-xl md:text-2xl">ClusterEye</div>
+      <div className="w-full h-20 bg-[#0D100D] rounded-[20px] relative flex items-center justify-between px-4 min-[1200px]:px-8 flex-shrink-0">
+        {/* Logo */}
+        <Link to="/" className="flex items-center gap-2 min-[1200px]:gap-3">
+          <img src="/ClusterEye.svg" alt="ClusterEye Logo" className="w-8 h-8 min-[1200px]:w-10 min-[1200px]:h-10 object-contain" />
+          <div className="text-white text-lg min-[1200px]:text-2xl font-bold tracking-widest leading-none">ClusterEye</div>
         </Link>
 
-        {/* Navigation Links as buttons (Desktop view) */}
-        <div className="flex items-center gap-12 text-white text-2xl relative hidden md:flex">
-          <NavItem label="Dashboard" to="/" icon={<Speedometer size={32} className="text-[#69639E]" />} isActive={isActive("/")} />
-          <NavItem label="Nodes" to="/nodes" icon={<HardDrives size={32} className="text-[#69639E]" />} isActive={isActive("/nodes")} />
-          <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={32} className="text-[#69639E]" />} isActive={isActive("/clusters")} />
-          <NavItem label="Disks" to="/disks" icon={<Disc size={32} className="text-[#69639E]" />} isActive={isActive("/disks")} />
-          <NavItem label="Network" to="/network" icon={<Network size={32} className="text-[#69639E]" />} isActive={isActive("/network")} />
-          <NavItem label="Docker" to="/docker" icon={<Cube size={32} className="text-[#69639E]" />} isActive={isActive("/docker")} />
+        {/* Navigation Links (Desktop) */}
+        <div className="flex items-center gap-2 text-white text-lg hidden min-[1200px]:flex">
+          <NavItem label="Dashboard" to="/" icon={<Speedometer size={24} className="text-[#69639E]" />} isActive={isActive("/")} />
+          <NavItem label="Nodes" to="/nodes" icon={<HardDrives size={24} className="text-[#69639E]" />} isActive={isActive("/nodes")} />
+          <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={24} className="text-[#69639E]" />} isActive={isActive("/clusters")} />
+          <NavItem label="Disks" to="/disks" icon={<Disc size={24} className="text-[#69639E]" />} isActive={isActive("/disks")} />
+          <NavItem label="Network" to="/network" icon={<Network size={24} className="text-[#69639E]" />} isActive={isActive("/network")} />
         </div>
 
-        {/* Mobile Sidebar Icon */}
-        <button
-          className="md:hidden text-white text-3xl"
-          onClick={toggleSidebar}
-        >
-          ☰ {/* Hamburger Icon */}
-        </button>
-
-        {/* Profile Button (Display Initials) */}
-        <div
-          ref={menuRef} // Attach the ref to the dropdown menu div
-          className="relative flex items-center gap-3"
-        >
-          {/* Profile Button - Display user's initials */}
+        {/* User Profile (Desktop) */}
+        <div ref={menuRef} className="relative hidden min-[1200px]:flex items-center gap-3">
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-black text-xl md:text-3xl font-bold transition-all duration-300 hover:bg-gray-700 cursor-pointer"
+            className="w-10 h-10 bg-zinc-300 rounded-full flex items-center justify-center text-black text-xl font-bold hover:bg-zinc-400 transition-colors cursor-pointer"
           >
-            {getUserInitials} {/* Display user's initials */}
+            {getUserInitials}
           </button>
 
-          {/* Sub Navigation Bar (Dropdown menu for profile) */}
           {showMenu && (
-            <div className="absolute top-20 right-1 bg-[#0D100D] p-4 rounded-lg shadow-lg w-80 md:w-70">
-              {/* Profile Button to open Profile Modal */}
+            <div className="absolute top-20 right-0 bg-[#161D22] border border-white/10 p-4 rounded-lg shadow-xl w-64 z-50">
               <button
                 onClick={() => setShowProfileModal(true)}
-                className="w-full text-center bg-white/30 text-white py-2 rounded-lg hover:bg-white/40"
+                className="w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer"
               >
                 Profile
               </button>
               <button
                 onClick={handleLogout}
-                className="w-full text-center bg-white/20 text-white py-2 rounded-lg mt-2 hover:bg-white/50"
+                className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 rounded-lg cursor-pointer"
               >
                 Logout
               </button>
@@ -106,18 +82,21 @@ export default function Navbar({ user }) {
           )}
         </div>
 
-        {/* Profile Modal (Popup when Profile button is clicked) */}
+        {/* Mobile Toggle */}
+        <button className="min-[1200px]:hidden text-white text-3xl cursor-pointer" onClick={toggleSidebar}>☰</button>
+
+        {/* Profile Modal */}
         {showProfileModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-            <div className="bg-gray-800 p-6 rounded-lg w-96">
-              <div className="text-white text-3xl font-bold mb-4">User Profile</div>
-              <div className="text-white mb-4">
-                <div>Email: {user?.email}</div>
-                <div>Full Name: {user?.displayName || "N/A"}</div>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+            <div className="bg-stone-900 border border-white/10 p-8 rounded-2xl w-[400px]">
+              <h2 className="text-white text-3xl font-bold mb-6">User Profile</h2>
+              <div className="space-y-4 text-white/80 mb-8">
+                <p><span className="text-white font-medium">Email:</span> {user?.email}</p>
+                <p><span className="text-white font-medium">Name:</span> {user?.displayName || "N/A"}</p>
               </div>
               <button
                 onClick={() => setShowProfileModal(false)}
-                className="bg-red-500 text-white px-4 py-2 rounded-lg w-full hover:bg-red-600"
+                className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors cursor-pointer"
               >
                 Close
               </button>
@@ -126,28 +105,49 @@ export default function Navbar({ user }) {
         )}
       </div>
 
-      {/* Mobile Sidebar (Responsive view) */}
+      {/* Mobile Sidebar */}
       {showSidebar && (
-        <div
-          ref={sidebarRef} // Sidebar reference
-          className="absolute top-0 left-0 w-64 h-full bg-[#0D100D] p-6 flex flex-col text-white shadow-lg z-50"
-        >
-          {/* Close Button - Centered */}
-          <button
-            onClick={() => setShowSidebar(false)}
-            className="absolute top-10 left-1/2 transform -translate-x-1/2 text-white text-3xl"
-          >
-            ✖ {/* Close Sidebar */}
-          </button>
-
-          {/* Navigation Links in Sidebar */}
-          <div className="relative top-25 flex flex-col items-center gap-10">
-            <NavItem label="Dashboard" to="/" icon={<Speedometer size={32} className="text-[#69639E]" />} isActive={isActive("/")} className="bg-white/5 w-full text-center" />
-            <NavItem label="Nodes" to="/nodes" icon={<HardDrives size={32} className="text-[#69639E]" />} isActive={isActive("/nodes")} className="bg-white/5 w-full text-center" />
-            <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={32} className="text-[#69639E]" />} isActive={isActive("/clusters")} className="bg-white/5 w-full text-center" />
-            <NavItem label="Disks" to="/disks" icon={<Disc size={32} className="text-[#69639E]" />} isActive={isActive("/disks")} className="bg-white/5 w-full text-center" />
-            <NavItem label="Network" to="/network" icon={<Network size={32} className="text-[#69639E]" />} isActive={isActive("/network")} className="bg-white/5 w-full text-center" />
-            <NavItem label="Docker" to="/docker" icon={<Cube size={32} className="text-[#69639E]" />} isActive={isActive("/docker")} className="bg-white/5 w-full text-center" />
+        <div ref={sidebarRef} className="fixed inset-0 bg-black/80 z-[100] min-[1200px]:hidden">
+          <div className="w-64 h-full bg-stone-950 p-6 flex flex-col gap-6 shadow-2xl">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-zinc-300 rounded-full flex items-center justify-center text-black font-bold">
+                  {getUserInitials}
+                </div>
+                <div className="text-white text-sm font-medium truncate max-w-[120px]">{user?.email?.split('@')[0]}</div>
+              </div>
+              <button onClick={() => setShowSidebar(false)} className="text-white text-2xl cursor-pointer">✕</button>
+            </div>
+            <div className="flex flex-col gap-6">
+              <Link to="/" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <Speedometer size={32} className="text-[#69639E]" /> Dashboard
+              </Link>
+              <Link to="/nodes" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <HardDrives size={32} className="text-[#69639E]" /> Nodes
+              </Link>
+              <Link to="/clusters" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <ShareNetwork size={32} className="text-[#69639E]" /> Clusters
+              </Link>
+              <Link to="/disks" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <Disc size={32} className="text-[#69639E]" /> Disks
+              </Link>
+              <Link to="/network" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <Network size={32} className="text-[#69639E]" /> Network
+              </Link>
+              <div className="h-px bg-white/10 my-2"></div>
+              <button
+                onClick={() => { setShowSidebar(false); setShowProfileModal(true); }}
+                className="text-white text-2xl flex items-center gap-4 text-left cursor-pointer"
+              >
+                <User size={32} className="text-[#69639E]" /> Profile
+              </button>
+              <button
+                onClick={() => { setShowSidebar(false); handleLogout(); }}
+                className="text-red-400 text-2xl flex items-center gap-4 text-left cursor-pointer"
+              >
+                <SignOut size={32} className="text-red-400/60" /> Logout
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -155,19 +155,16 @@ export default function Navbar({ user }) {
   );
 }
 
-// Reusable NavLink Component with Icon and Button Styling
 function NavItem({ label, to, icon, isActive }) {
   return (
-    <div className="relative">
-      <Link
-        to={to}
-        className={`flex items-center bg-white/1 gap-2 px-6 py-3 rounded-[20px] transition-all duration-300 cursor-pointer
-          ${isActive ? "bg-white/10 text-white border-white/0" : "text-white border-transparent hover:border-white hover:bg-gray-800"}
-        `}
-      >
-        {icon} {/* Render the icon */}
-        {label}
-      </Link>
-    </div>
+    <Link
+      to={to}
+      className={`flex items-center gap-3 px-6 py-2 rounded-[20px] transition-all duration-300
+        ${isActive ? "bg-white/[0.05] text-white" : "text-white/70 hover:text-white"}
+      `}
+    >
+      {icon}
+      <span>{label}</span>
+    </Link>
   );
 }

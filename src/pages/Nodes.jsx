@@ -8,10 +8,30 @@ import {
   onSnapshot,
   addDoc,
   serverTimestamp,
+  doc,
+  writeBatch,
+  increment,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
+import {
+  Desktop,
+  HardDrives,
+  Cpu,
+  Memory,
+  CaretUp,
+  CaretDown,
+  MagnifyingGlass,
+  CaretCircleRight,
+  Plus,
+  Funnel,
+  XCircle,
+  Globe,
+  Circuitry,
+} from "@phosphor-icons/react";
 import { db, auth } from "../firebaseConfig";
 import NodeModal from "../components/NodeModal";
+import AddNodeModal from "../components/AddNodeModal";
+import FilterModal from "../components/FilterModal";
 
 export default function Nodes() {
   const [uid, setUid] = useState(null);
@@ -124,10 +144,19 @@ export default function Nodes() {
     if (!ipAddress.trim()) return setError("Enter IP address.");
     if (!isValidIP(ipAddress)) return setError("Invalid IP.");
 
+    if (nodeId.length > 50) return setError("Node ID max 50 chars.");
+    if (!/^[a-zA-Z0-9-_]+$/.test(nodeId)) return setError("Node ID: letters, numbers, -, _ only.");
+    if (nodeName.length > 50) return setError("Node Name max 50 chars.");
+
     const idExists = nodes.some(
       (n) => n.nodeId?.toLowerCase() === nodeId.trim().toLowerCase()
     );
     if (idExists) return setError("Node ID already exists.");
+
+    const nameExists = nodes.some(
+      (n) => n.node?.toLowerCase() === nodeName.trim().toLowerCase()
+    );
+    if (nameExists) return setError("Node name already exists.");
 
     if (allocRows.length === 0)
       return setError("At least one disk must be allocated.");
@@ -158,14 +187,20 @@ export default function Nodes() {
       const gbNum = Number(r.gb);
       if (!gbNum || gbNum <= 0) return setError("Enter valid GB.");
 
-      const freeGB = (disk.free || 0) / 1_000_000_000;
+      const freeGB = ((disk.total || 0) - (disk.used || 0)) / 1_000_000_000;
       if (gbNum > freeGB)
         return setError(`${disk.disk} has only ${freeGB.toFixed(1)} GB free.`);
 
       allocations.push({ disk: disk.disk, allocatedGB: gbNum });
     }
 
-    const doc = {
+    // Calculate total allocated bytes
+    const totalAllocatedBytes = allocations.reduce(
+      (sum, a) => sum + (Number(a.allocatedGB) || 0) * 1_000_000_000,
+      0
+    );
+
+    const nodePayload = {
       userId: uid,
       nodeId: nodeId.trim(),
       node: nodeName.trim(),
@@ -173,16 +208,47 @@ export default function Nodes() {
       cluster,
       ipAddress: ipAddress.trim(),
       allocations,
+      allocated: totalAllocatedBytes,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
 
+
+
     setSaving(true);
     try {
-      await addDoc(collection(db, "nodes"), doc);
+      const batch = writeBatch(db);
+
+      // Create new node ref
+      const newNodeRef = doc(collection(db, "nodes"));
+      batch.set(newNodeRef, nodePayload);
+
+      // Update disk usage
+      for (const a of allocations) {
+        // Find disk ID by name (since we stored disk name in allocations, but need ID for doc ref)
+        // Wait, allocations array build in previous loop used `disk.disk` name. 
+        // We need the ID. Let's fix the allocation building loop above or lookup here.
+        // Actually, looking at lines 156-166, we iterate allocRows which has diskId.
+        // Let's refine the loop below to match disk names to IDs or just rely on the fact we need IDs.
+
+        // Correct approach: We need to find the disk ID for the update.
+        // In the previous loop (lines 155-167), we found `disk` object. 
+        // `allocations` currently stores { disk: "diskName", ... }. 
+        // We should probably change usages to use IDs or looking it up again.
+        // Let's just look it up again for safety/simplicity in this batch block.
+        const diskObj = disks.find(d => d.disk === a.disk);
+        if (diskObj) {
+          const diskRef = doc(db, "disks", diskObj.id);
+          const bytesToAdd = (Number(a.allocatedGB) || 0) * 1_000_000_000;
+          batch.update(diskRef, { used: increment(bytesToAdd) });
+        }
+      }
+
+      await batch.commit();
       resetForm();
       setShowCreate(false);
     } catch (err) {
+      console.error(err);
       setError("Failed to create.");
     } finally {
       setSaving(false);
@@ -237,6 +303,16 @@ export default function Nodes() {
     setFilterDisk("");
   }
 
+  function resetAddForm() {
+    setNodeId("");
+    setNodeName("");
+    setType("LXC");
+    setCluster("");
+    setIpAddress("");
+    setAllocRows([]);
+    setError("");
+  }
+
   function handleSort(key) {
     setSortConfig((prev) =>
       prev.key === key
@@ -250,100 +326,155 @@ export default function Nodes() {
   const totalLXC = nodes.filter((n) => n.type === "LXC").length;
 
   return (
-    <div className="flex gap-4 text-white">
+    <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
 
-      {/* ---------------- LEFT COLUMN ---------------- */}
-      <div className="w-[10%] min-w-[250px] space-y-4">
+      {/* ---------------- LEFT SIDEBAR ---------------- */}
+      <aside className="w-full lg:w-80 bg-[#0D100D] rounded-3xl p-6 flex flex-col gap-6 shrink-0 border border-white/5 h-fit lg:h-full lg:overflow-y-auto content-scrollbar">
 
-        <input
-          type="text"
-          placeholder="Search by Node name or ID"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg bg-gray-800/70 border border-white/10"
-        />
+        <div className="relative">
+          <div className="w-full h-12 rounded-xl p-[2px] bg-gradient-to-r from-[#A8C9AD] to-[#69639E] transition-all">
+            <input
+              type="text"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-full bg-[#161D22] rounded-[10px] px-4 text-white text-base focus:outline-none placeholder:text-white/40"
+            />
+          </div>
+          <div className="absolute right-4 top-3.5 text-[#A8C9AD] opacity-80">
+            <MagnifyingGlass size={20} />
+          </div>
+        </div>
 
-        <div className="flex flex-col gap-2">
+        {/* Action Grid */}
+        <div className="grid grid-cols-5 gap-2 h-12">
           <button
             onClick={() => setShowCreate(true)}
-            className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500"
+            className="col-span-3 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] rounded-xl flex items-center justify-center gap-2 text-white font-bold text-xs hover:opacity-90 transition-opacity shadow-lg cursor-pointer"
           >
-            + Add Node
+            <Plus size={16} weight="bold" />
+            <span>Add Node</span>
           </button>
-
           <button
             onClick={() => setShowFilter(true)}
-            className="w-full px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600"
+            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
-            Filter
+            <Funnel size={18} />
           </button>
-
           <button
             onClick={clearFilters}
-            className="w-full px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600"
+            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
-            Clear
+            <XCircle size={18} />
           </button>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3">
-          <StatCard label="Total Nodes" value={totalNodes} />
-          <StatCard label="Total VMs" value={totalVM} />
-          <StatCard label="Total LXCs" value={totalLXC} />
+        {/* Row 3: Stats (Grid on mobile, column on desktop) */}
+        <div className="flex-1 grid grid-cols-3 md:flex md:flex-col gap-3 mt-2 min-h-0">
+          <StatCard mockup label="Total nodes" value={totalNodes} fill />
+          <StatCard mockup label="Total vms" value={totalVM} fill />
+          <StatCard mockup label="Total lxcs" value={totalLXC} fill />
         </div>
-      </div>
+      </aside>
 
-      {/* ---------------- RIGHT COLUMN ---------------- */}
-      <div className="flex-1">
-        {loading ? (
-          <div className="text-white/60">Loading...</div>
-        ) : filteredNodes.length === 0 ? (
-          <div className="text-white/60">No nodes found.</div>
-        ) : (
-          <div className="w-full overflow-auto rounded-xl border border-white/10">
-            <table className="min-w-[1000px] w-full text-sm">
-              <thead className="bg-white/5">
-                <tr className="text-left">
-                  <Th onClick={() => handleSort("nodeId")}>ID</Th>
-                  <Th onClick={() => handleSort("node")}>Node</Th>
-                  <Th onClick={() => handleSort("type")}>Type</Th>
-                  <Th onClick={() => handleSort("cluster")}>Cluster</Th>
-                  <Th>Disks</Th>
-                  <Th>Allocated</Th>
-                  <Th onClick={() => handleSort("ipAddress")}>IP</Th>
-                  <Th className="text-right">Actions</Th>
-                </tr>
-              </thead>
+      {/* ---------------- RIGHT CONTENT AREA ---------------- */}
+      <section className="flex-1 bg-[#0D100D] rounded-[20px] p-4 md:p-6 md:h-full md:overflow-y-auto custom-scrollbar h-fit">
 
-              <tbody>
-                {filteredNodes.map((n) => (
-                  <tr key={n.id} className="hover:bg-white/5">
-                    <Td>{n.nodeId}</Td>
-                    <Td>{n.node}</Td>
-                    <Td>{n.type}</Td>
-                    <Td>{n.cluster}</Td>
-                    <Td>{n.allocations?.map((a) => a.disk).join(", ")}</Td>
-                    <Td>{fmtBytes(n.allocated || 0)}</Td>
-                    <Td>{n.ipAddress}</Td>
+        {/* Table Headers (Hidden on mobile) */}
+        <div className="hidden md:grid grid-cols-7 text-white/50 text-sm font-semibold mb-4 px-6">
+          <span>ID</span>
+          <span>Node</span>
+          <span>Type</span>
+          <span>Cluster</span>
+          <span>Disk</span>
+          <span>Allocated</span>
+          <span>Ip address</span>
+        </div>
 
-                    <Td className="text-right">
-                      <button
-                        onClick={() => setViewNode(n)}
-                        className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20"
-                      >
-                        View
-                      </button>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        {/* Table Rows */}
+        <div className="flex flex-col gap-2">
+          {loading ? (
+            <div className="text-white/40 text-center py-12 text-lg">Loading system nodes...</div>
+          ) : filteredNodes.length === 0 ? (
+            <div className="text-white/40 text-center py-12 text-lg">No nodes found in this sector.</div>
+          ) : (
+            filteredNodes.map((n) => (
+              <div key={n.id}>
+                {/* Desktop View */}
+                <div
+                  className="hidden md:grid grid-cols-7 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5"
+                >
+                  <div className="truncate pr-4 text-white/60">{n.nodeId}</div>
+                  <div className="truncate pr-4">{n.node}</div>
+                  <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90 w-fit">{n.type}</div>
+                  <div className="flex items-center gap-2 truncate pr-4">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: clusters.find(c => c.cluster === n.cluster)?.color || "#69639E" }}></div>
+                    <span className="text-sm font-normal text-white/80 truncate">{n.cluster}</span>
+                  </div>
+                  <div className="truncate pr-4 text-sm font-normal text-white/60">{n.allocations?.map(a => a.disk).join(", ") || "—"}</div>
+                  <div className="text-sm font-normal text-white/80">{fmtBytes(n.allocated || 0)}</div>
+                  <div className="flex justify-between items-center text-sm text-white/90">
+                    <span>{n.ipAddress}</span>
+                    <div
+                      onClick={() => setViewNode(n)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[#69639E] hover:text-[#A8C9AD] flex items-center gap-1 cursor-pointer"
+                      title="View Node"
+                    >
+                      <CaretCircleRight size={22} weight="fill" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mobile View (Card) */}
+                <div
+                  className="md:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-3 gap-2 text-white transition-all border border-white/5 group"
+                >
+                  {/* Row 1: Name, Type, Arrow */}
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-bold text-white">{n.node}</div>
+                      <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90">{n.type}</div>
+                    </div>
+                    <CaretCircleRight
+                      onClick={() => setViewNode(n)}
+                      size={20}
+                      weight="fill"
+                      className="text-[#69639E] active:scale-95 transition-all cursor-pointer"
+                    />
+                  </div>
+
+                  {/* Row 2: Subtitle (ID & Cluster) */}
+                  <div className="flex items-center gap-3 text-[10px] text-white/50 -mt-1">
+                    <span className="font-mono">{n.nodeId}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: clusters.find(c => c.cluster === n.cluster)?.color || "#69639E" }}></div>
+                      <span>{n.cluster}</span>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Stats Grid (Compact) */}
+                  <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-white/5">
+                    <div>
+                      <div className="text-[9px] text-white/30 uppercase font-bold">IP</div>
+                      <div className="text-xs text-white/80 font-mono truncate">{n.ipAddress}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-white/30 uppercase font-bold">Alloc</div>
+                      <div className="text-xs text-white/80">{fmtBytes(n.allocated || 0)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-white/30 uppercase font-bold">Disks</div>
+                      <div className="text-xs text-white/60 truncate">{n.allocations?.map(a => a.disk).join(", ") || "—"}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       {/* ---------------- MODALS ---------------- */}
-
       {showFilter && (
         <FilterModal
           onClose={() => setShowFilter(false)}
@@ -360,7 +491,10 @@ export default function Nodes() {
 
       {showCreate && (
         <AddNodeModal
-          onClose={() => setShowCreate(false)}
+          onClose={() => {
+            resetAddForm();
+            setShowCreate(false);
+          }}
           handleCreate={handleCreate}
           clusters={clusters}
           disks={disks}
@@ -375,6 +509,7 @@ export default function Nodes() {
           ipAddress={ipAddress}
           setIpAddress={setIpAddress}
           allocRows={allocRows}
+          setAllocRows={setAllocRows}
           addAlloc={addAlloc}
           removeAlloc={removeAlloc}
           changeAlloc={changeAlloc}
@@ -413,290 +548,19 @@ function Td({ children }) {
   return <td className="px-4 py-3 border-b border-white/5">{children}</td>;
 }
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, mockup, fill }) {
+  if (mockup) {
+    return (
+      <div className={`w-full ${fill ? "flex-1" : "h-24"} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between shadow-md group hover:border-[#69639E]/50 transition-all`}>
+        <div className={`text-white/70 font-medium tracking-tight ${fill ? "text-sm md:text-xl" : "text-sm"}`}>{label}</div>
+        <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-3xl md:text-7xl" : "text-3xl"}`}>{value}</div>
+      </div>
+    );
+  }
   return (
     <div className="bg-gray-800/70 border border-white/10 rounded-xl p-4 text-center">
       <div className="text-white/60 text-sm">{label}</div>
       <div className="text-2xl font-bold">{value}</div>
-    </div>
-  );
-}
-
-/* ---------------- Filter Modal ---------------- */
-
-function FilterModal({
-  onClose,
-  clusters,
-  disks,
-  filterType,
-  setFilterType,
-  filterCluster,
-  setFilterCluster,
-  filterDisk,
-  setFilterDisk,
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl border border-white/10 p-5 w-full max-w-md">
-        <h3 className="text-xl font-semibold mb-4">Filter Nodes</h3>
-
-        <div className="space-y-3">
-          <Field label="Type">
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="input w-full"
-            >
-              <option value="">All Types</option>
-              <option value="VM">VM</option>
-              <option value="LXC">LXC</option>
-            </select>
-          </Field>
-
-          <Field label="Cluster">
-            <select
-              value={filterCluster}
-              onChange={(e) => setFilterCluster(e.target.value)}
-              className="input w-full"
-            >
-              <option value="">All Clusters</option>
-              {clusters.map((c) => (
-                <option key={c.id} value={c.cluster}>
-                  {c.cluster}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Disk">
-            <select
-              value={filterDisk}
-              onChange={(e) => setFilterDisk(e.target.value)}
-              className="input w-full"
-            >
-              <option value="">All Disks</option>
-              {disks.map((d) => (
-                <option key={d.id} value={d.disk}>
-                  {d.disk}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-
-        <div className="flex justify-end gap-2 mt-5">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20"
-          >
-            Close
-          </button>
-
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500"
-          >
-            Apply
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Add Node Modal ---------------- */
-
-function AddNodeModal({
-  onClose,
-  handleCreate,
-  clusters,
-  disks,
-  nodeId,
-  setNodeId,
-  nodeName,
-  setNodeName,
-  type,
-  setType,
-  cluster,
-  setCluster,
-  ipAddress,
-  setIpAddress,
-  allocRows,
-  addAlloc,
-  removeAlloc,
-  changeAlloc,
-  error,
-  saving,
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-gray-900 border border-white/10 rounded-2xl p-5 w-full max-w-2xl">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-semibold">Add New Node</h3>
-          <button
-            onClick={onClose}
-            className="px-3 py-1 bg-white/10 rounded-lg hover:bg-white/20"
-          >
-            Close
-          </button>
-        </div>
-
-        <form onSubmit={handleCreate} className="space-y-3">
-
-          <Field label="Node ID">
-            <input
-              type="text"
-              placeholder="Unique Node ID"
-              value={nodeId}
-              onChange={(e) => setNodeId(e.target.value)}
-              className="input w-full"
-            />
-          </Field>
-
-          <Field label="Node Name">
-            <input
-              type="text"
-              placeholder="Node name"
-              value={nodeName}
-              onChange={(e) => setNodeName(e.target.value)}
-              className="input w-full"
-            />
-          </Field>
-
-          <Field label="Type">
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="input w-full"
-            >
-              <option value="LXC">LXC</option>
-              <option value="VM">VM</option>
-            </select>
-          </Field>
-
-          <Field label="Cluster">
-            <select
-              value={cluster}
-              onChange={(e) => {
-                setCluster(e.target.value);
-                setAllocRows([]); // allowed here, inside Nodes() modal receives this prop
-              }}
-              className="input w-full"
-            >
-              <option value="">Select cluster</option>
-              {clusters.map((c) => (
-                <option key={c.id} value={c.cluster}>
-                  {c.cluster}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="IP Address">
-            <input
-              type="text"
-              placeholder="IPv4 address"
-              value={ipAddress}
-              onChange={(e) => setIpAddress(e.target.value)}
-              className="input w-full"
-            />
-          </Field>
-
-          {/* Allocations */}
-          <div className="border border-white/10 rounded-lg p-3 mt-2">
-            <div className="flex justify-between items-center">
-              <div className="font-semibold text-white/80">Disk Allocations</div>
-              <button
-                type="button"
-                onClick={addAlloc}
-                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500"
-              >
-                + Add Disk
-              </button>
-            </div>
-
-            {allocRows.length === 0 ? (
-              <div className="text-white/60 mt-3">No allocations yet.</div>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {allocRows.map((r, i) => {
-                  const filteredDisks = disks.filter((d) => d.cluster === cluster);
-
-                  return (
-                    <div key={i} className="flex flex-wrap gap-2 items-center">
-
-                      <select
-                        value={r.diskId}
-                        onChange={(e) =>
-                          changeAlloc(i, "diskId", e.target.value)
-                        }
-                        className="input"
-                      >
-                        <option value="">Select disk</option>
-                        {filteredDisks.map((d) => {
-                          const freeGB = (d.free || 0) / 1_000_000_000;
-                          return (
-                            <option key={d.id} value={d.id}>
-                              {d.disk} ({freeGB.toFixed(1)} GB free)
-                            </option>
-                          );
-                        })}
-                      </select>
-
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="Allocated (GB)"
-                        value={r.gb}
-                        onChange={(e) =>
-                          changeAlloc(i, "gb", e.target.value)
-                        }
-                        className="w-36 input"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => removeAlloc(i)}
-                        className="px-3 py-2 rounded-lg bg-red-600/70 hover:bg-red-600"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="bg-red-600/20 text-red-200 border border-red-600/30 rounded-lg px-3 py-2 mt-3">
-              {error}
-            </div>
-          )}
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
-            >
-              {saving ? "Saving…" : "Create Node"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Shared Components ---------------- */
-
-function Field({ label, children }) {
-  return (
-    <div>
-      <div className="text-white/70 mb-1">{label}</div>
-      {children}
     </div>
   );
 }

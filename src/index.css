@@ -1,9 +1,41 @@
 @import "tailwindcss";
 
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   background-color: #060906;
   color: white;
   font-family: 'Inter', sans-serif;
+}
+
+@layer components {
+  .input {
+    @apply w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all;
+  }
+
+  /* Ensure select options are dark */
+  select option {
+    @apply bg-[#161D22] text-white;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0D100D;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }

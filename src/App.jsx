@@ -28,7 +28,7 @@ export default function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-neutral-950 p-6">
+      <div className="md:h-screen flex flex-col p-4 md:p-6 gap-4 md:gap-6 md:overflow-hidden min-h-screen bg-[#060906]">
         <Navbar user={user} />
         <Routes>
           <Route path="/" element={<Dashboard />} /> {/* Home = Dashboard */}
