@@ -38,6 +38,7 @@ export default function Nodes() {
   const [clusters, setClusters] = useState([]);
   const [disks, setDisks] = useState([]);
   const [nodes, setNodes] = useState([]);
+  const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -72,6 +73,7 @@ export default function Nodes() {
       setClusters([]);
       setDisks([]);
       setNodes([]);
+      setContainers([]);
       setLoading(false);
       return;
     }
@@ -100,12 +102,33 @@ export default function Nodes() {
       }
     );
 
+    const unsubContainers = onSnapshot(
+      query(collection(db, "containers"), where("userId", "==", uid)),
+      (snap) => setContainers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+
     return () => {
       unsubClusters();
       unsubDisks();
       unsubNodes();
+      unsubContainers();
     };
   }, [uid]);
+
+  // ... (lines 111-520 unchanged)
+
+  {
+    viewNode && (
+      <NodeModal
+        node={viewNode}
+        onClose={() => setViewNode(null)}
+        clusters={clusters}
+        disks={disks}
+        containers={containers}
+        uid={uid}
+      />
+    )
+  }
 
   /* ---------------- Helpers ---------------- */
   function isValidIP(ip) {
@@ -524,6 +547,7 @@ export default function Nodes() {
           onClose={() => setViewNode(null)}
           clusters={clusters}
           disks={disks}
+          containers={containers}
           uid={uid}
         />
       )}

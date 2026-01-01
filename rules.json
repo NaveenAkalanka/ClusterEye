@@ -1,0 +1,53 @@
+// Firestore Security Rules — Safe Cascade Delete (DEV SAFE)
+rules_version = '2';
+service cloud.firestore {
+    match / databases / { database } / documents {
+
+        // --- helpers ---
+        function signedIn() {
+            return request.auth != null && request.auth.uid != null;
+        }
+        function isCreateOwner() {
+            return signedIn() && request.resource.data.userId == request.auth.uid;
+        }
+        function isDocOwner() {
+            return signedIn() && resource.data.userId == request.auth.uid;
+        }
+        function userIdImmutable() {
+            return !('userId' in request.resource.data)
+                || request.resource.data.userId == resource.data.userId;
+        }
+
+        // --- default rule for ALL collections (clusters, nodes, disks, containers, netIfs, etc.) ---
+        match / { collectionId } / { docId } {
+      allow create: if isCreateOwner();
+      allow read: if isDocOwner();
+      allow update: if isDocOwner() && userIdImmutable();
+      allow delete: if isDocOwner();
+        }
+
+        // --- ipIndex override (for unique IP checks and safe deletion) ---
+        // Path: ipIndex/{ip}  doc = { userId, nodeId }
+        match / ipIndex / { ip } {
+      // Allow signed-in users to check IP availability
+      allow get: if signedIn();
+
+      // Create only if owned and IP not taken (or same node)
+      allow create: if isCreateOwner() &&
+                (
+                    !exists(/databases/$(database) / documents / ipIndex / $(ip)) ||
+                    request.resource.data.nodeId ==
+                    get(/databases/$(database) / documents / ipIndex / $(ip)).data.nodeId
+                );
+
+      // Update: only the same owner, cannot change nodeId
+      allow update: if isDocOwner() &&
+                request.resource.data.nodeId == resource.data.nodeId;
+
+      // Delete: allow if owned OR if doc doesn't exist (safe cascade)
+      allow delete: if
+                (resource != null && resource.data.userId == request.auth.uid)
+        || !exists(/databases/$(database) / documents / ipIndex / $(ip));
+        }
+    }
+}

@@ -17,7 +17,7 @@ import { Eye, EyeSlash, ArrowSquareOut, XCircle, Warning } from "@phosphor-icons
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
 
-export default function NodeModal({ node, onClose, clusters, disks, uid }) {
+export default function NodeModal({ node, onClose, clusters, disks, containers, uid }) {
   const [editMode, setEditMode] = useState(false);
   const [local, setLocal] = useState({ ...node });
   const [saving, setSaving] = useState(false);
@@ -243,6 +243,12 @@ export default function NodeModal({ node, onClose, clusters, disks, uid }) {
 
   /* ----------------------- DELETE ----------------------- */
   function handleDelete() {
+    // Check for linked containers
+    const linkedContainers = (containers || []).filter(c => c.nodeId === node.nodeId);
+    if (linkedContainers.length > 0) {
+      setError(`Cannot delete node. It has ${linkedContainers.length} active container(s).`);
+      return;
+    }
     setConfirmDelete(true);
   }
 

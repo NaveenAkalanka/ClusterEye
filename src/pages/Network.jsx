@@ -153,13 +153,15 @@ export default function Network() {
             <div className="text-[10px] text-white/30 font-mono">/24</div>
           </div>
 
-          <CustomSelect
-            value={matrixCluster}
-            onChange={setMatrixCluster}
-            options={clusters.map(c => c.cluster)}
-            placeholder="Select Cluster"
-            className="w-full"
-          />
+          <div className="relative z-20">
+            <CustomSelect
+              value={matrixCluster}
+              onChange={setMatrixCluster}
+              options={clusters.map(c => c.cluster)}
+              placeholder="Select Cluster"
+              className="w-full"
+            />
+          </div>
 
           <div className="bg-[#161D22]/40 rounded-xl p-3 border border-white/5 shadow-inner">
             <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-[2px]">

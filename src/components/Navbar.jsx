@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut } from "@phosphor-icons/react"; // Importing Phosphor icons
+import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, ShippingContainer } from "@phosphor-icons/react"; // Importing Phosphor icons
 
 export default function Navbar({ user }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -53,6 +53,7 @@ export default function Navbar({ user }) {
           <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={24} className="text-[#69639E]" />} isActive={isActive("/clusters")} />
           <NavItem label="Disks" to="/disks" icon={<Disc size={24} className="text-[#69639E]" />} isActive={isActive("/disks")} />
           <NavItem label="Network" to="/network" icon={<Network size={24} className="text-[#69639E]" />} isActive={isActive("/network")} />
+          <NavItem label="Docker" to="/docker" icon={<ShippingContainer size={24} className="text-[#69639E]" />} isActive={isActive("/docker")} />
         </div>
 
         {/* User Profile (Desktop) */}
@@ -133,6 +134,9 @@ export default function Navbar({ user }) {
               </Link>
               <Link to="/network" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
                 <Network size={32} className="text-[#69639E]" /> Network
+              </Link>
+              <Link to="/docker" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
+                <ShippingContainer size={32} className="text-[#69639E]" /> Docker
               </Link>
               <div className="h-px bg-white/10 my-2"></div>
               <button
