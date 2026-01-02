@@ -25,6 +25,7 @@ export default function Dashboard() {
 
   // Network Matrix State
   const [matrixCluster, setMatrixCluster] = useState("");
+  const [matrixSubnet, setMatrixSubnet] = useState("");
 
   // Load All Data
   useEffect(() => {
@@ -35,7 +36,9 @@ export default function Dashboard() {
     const unsubClusters = onSnapshot(query(collection(db, "clusters"), where("userId", "==", uid)), (snap) => {
       const clusters = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setData(prev => ({ ...prev, clusters }));
-      if (clusters.length > 0 && !matrixCluster) setMatrixCluster(clusters[0].cluster);
+      if (clusters.length > 0 && !matrixCluster) {
+        setMatrixCluster(clusters[0].cluster);
+      }
     });
 
     const unsubNodes = onSnapshot(query(collection(db, "nodes"), where("userId", "==", uid)), (snap) => {
@@ -64,6 +67,31 @@ export default function Dashboard() {
       setMatrixCluster(data.clusters[0].cluster);
     }
   }, [data.clusters, matrixCluster]);
+
+  // Extract Subnets for selected Cluster (Visual Grouping by /24)
+  const availableSubnets = useMemo(() => {
+    if (!matrixCluster) return [];
+    const clusterNodes = data.nodes.filter(n => n.cluster === matrixCluster);
+    const subnets = new Set();
+    clusterNodes.forEach(n => {
+      if (n.ipAddress) {
+        const parts = n.ipAddress.split('.');
+        if (parts.length === 4) {
+          subnets.add(parts.slice(0, 3).join('.'));
+        }
+      }
+    });
+    return Array.from(subnets).sort();
+  }, [data.nodes, matrixCluster]);
+
+  // Auto-select first subnet
+  useEffect(() => {
+    if (availableSubnets.length > 0 && !availableSubnets.includes(matrixSubnet)) {
+      setMatrixSubnet(availableSubnets[0]);
+    } else if (availableSubnets.length === 0) {
+      setMatrixSubnet("");
+    }
+  }, [availableSubnets, matrixSubnet]);
 
 
   // --- STATS CALCULATION ---
@@ -96,15 +124,16 @@ export default function Dashboard() {
 
   // Network Matrix Logic
   const matrixActiveIndices = useMemo(() => {
-    if (!matrixCluster) return [];
+    // Use matrixSubnet to filter
+    if (!matrixCluster || !matrixSubnet) return [];
     return data.nodes
-      .filter(n => n.cluster === matrixCluster)
+      .filter(n => n.cluster === matrixCluster && n.ipAddress?.startsWith(matrixSubnet + "."))
       .map(n => {
         if (!n.ipAddress) return -1;
         const parts = n.ipAddress.split('.');
         return parts.length === 4 ? parseInt(parts[3]) : -1;
       });
-  }, [data.nodes, matrixCluster]);
+  }, [data.nodes, matrixCluster, matrixSubnet]);
 
 
   // --- RENDER ---
@@ -244,28 +273,41 @@ export default function Dashboard() {
 
 
         {/* 4. NETWORK SECTION (3/6) */}
-        <div className="lg:col-span-3 bg-[#0D100D] border border-white/5 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden group min-h-[300px] lg:min-h-0 animate-fadeInUp opacity-0" style={{ animationDelay: '300ms' }}>
+        <div className="lg:col-span-3 bg-[#0D100D] border border-white/5 rounded-3xl p-6 flex flex-col justify-between relative group min-h-[300px] lg:min-h-0 animate-fadeInUp opacity-0" style={{ animationDelay: '300ms' }}>
           {/* Header */}
-          <div className="flex items-center justify-between mb-2 shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-2 shrink-0 relative z-30 gap-4">
+            <div className="flex items-center gap-3 w-full md:w-auto">
               <Globe size={24} className="text-purple-400" weight="duotone" />
               <h2 className="text-xl font-bold text-white tracking-wide">Network</h2>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
               {/* Gateway Count */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-[#161D22] border border-white/5 rounded-lg">
+              <div className="flex items-center gap-2 px-3 py-1 bg-[#161D22] border border-white/5 rounded-lg shrink-0">
                 <Circuitry size={16} className="text-[#00FF94]" />
                 <span className="text-white text-xs font-bold">{data.clusters.filter(c => c.ipAddress).length}</span>
                 <span className="text-white/40 text-[10px] uppercase">Gateways</span>
               </div>
 
               {data.clusters.length > 0 && (
-                <div className="w-32">
+                <div className="w-32 relative z-20 shrink-0">
                   <CustomSelect
                     value={matrixCluster}
                     onChange={setMatrixCluster}
                     options={data.clusters.map(c => c.cluster)}
                     placeholder="Cluster"
+                    className="h-8 text-[10px]"
+                  />
+                </div>
+              )}
+
+              {/* Subnet Selector (Only if > 1 subnet) */}
+              {availableSubnets.length > 1 && (
+                <div className="w-28 relative z-20">
+                  <CustomSelect
+                    value={matrixSubnet}
+                    onChange={setMatrixSubnet}
+                    options={availableSubnets.map(s => ({ value: s, label: s + ".0/24" }))}
+                    placeholder="Subnet"
                     className="h-8 text-[10px]"
                   />
                 </div>

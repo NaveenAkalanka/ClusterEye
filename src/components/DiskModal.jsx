@@ -4,7 +4,7 @@ import { doc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from "firebase
 import { db } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
 
-export default function DiskModal({ disk, onClose, uid, allNodes, clusters }) {
+export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allDisks = [] }) {
     const [editMode, setEditMode] = useState(false);
 
     // Local state for editing
@@ -27,6 +27,10 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters }) {
 
         if (!newName) return setError("Disk name cannot be empty.");
         if (newTotal <= 0) return setError("Total size must be greater than 0.");
+
+        // Duplicate Check
+        const dupe = allDisks.some(d => d.id !== disk.id && d.disk.toLowerCase() === newName.toLowerCase());
+        if (dupe) return setError(`Disk "${newName}" already exists.`);
 
         // Resize Validation: Cannot shrink below current usage
         if (newTotal < disk.used) {

@@ -2,12 +2,14 @@ import { useState, useEffect } from "react";
 import { XCircle, Warning, Eye, EyeSlash } from "@phosphor-icons/react";
 import { doc, updateDoc, deleteDoc, writeBatch, collection, query, where, getDocs, getDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { isValidSubnetMask } from "../utils/network";
 
-export default function ClusterModal({ cluster, onClose, uid, allClusters = [], allNodes = [] }) {
+export default function ClusterModal({ cluster, onClose, uid, allClusters = [], allNodes = [], disks = [] }) {
     // Local state for editing
     const [editMode, setEditMode] = useState(false);
     const [localName, setLocalName] = useState(cluster.cluster);
     const [localIp, setLocalIp] = useState(cluster.ipAddress || "");
+    const [localSubnet, setLocalSubnet] = useState(cluster.subnetMask || "255.255.255.0");
     const [localColor, setLocalColor] = useState(cluster.color || "#69639E");
 
     const [saving, setSaving] = useState(false);
@@ -19,7 +21,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
     // Check dirty
-    const isDirty = localName !== cluster.cluster || localIp !== (cluster.ipAddress || "") || localColor !== (cluster.color || "#69639E");
+    const isDirty = localName !== cluster.cluster || localIp !== (cluster.ipAddress || "") || localSubnet !== (cluster.subnetMask || "255.255.255.0") || localColor !== (cluster.color || "#69639E");
 
     function handleCloseRequest() {
         if (editMode && isDirty) {
@@ -43,6 +45,8 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
         const ipRegex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
         if (!ipRegex.test(localIp)) return setError("Invalid IP format.");
 
+        if (!isValidSubnetMask(localSubnet)) return setError("Invalid subnet mask format.");
+
         const ipExists =
             allClusters.some(c => c.id !== cluster.id && c.ipAddress === localIp) ||
             allNodes.some(n => n.ipAddress === localIp); // Check against node IPs too just in case
@@ -60,6 +64,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
             batch.update(clusterRef, {
                 cluster: localName.trim(),
                 ipAddress: localIp.trim(),
+                subnetMask: localSubnet.trim(),
                 color: localColor,
                 updatedAt: serverTimestamp(),
             });
@@ -94,26 +99,20 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
         if (deleteConfirmText !== cluster.cluster) {
             return setError(`Type "${cluster.cluster}" to confirm.`);
         }
+
+        // CHECK DEPENDENCIES
+        const hasNodes = allNodes.some(n => n.cluster === cluster.cluster);
+        if (hasNodes) {
+            return setError("Cannot delete: Cluster has associated nodes. Delete nodes first.");
+        }
+        const hasDisks = disks.some(d => d.cluster === cluster.cluster);
+        if (hasDisks) {
+            return setError("Cannot delete: Cluster has associated disks. Delete disks first.");
+        }
+
         setSaving(true);
         try {
-            // Cascade delete done in main usually, but we can do it here. 
-            // Re-implementing simplified cascade:
-            const batch = writeBatch(db);
-
-            // Delete nodes
-            const qNodes = query(collection(db, "nodes"), where("userId", "==", uid), where("cluster", "==", cluster.cluster));
-            const snapNodes = await getDocs(qNodes);
-            snapNodes.forEach(d => batch.delete(d.ref));
-
-            // Delete disks
-            const qDisks = query(collection(db, "disks"), where("userId", "==", uid), where("cluster", "==", cluster.cluster));
-            const snapDisks = await getDocs(qDisks);
-            snapDisks.forEach(d => batch.delete(d.ref));
-
-            // Delete cluster
-            batch.delete(doc(db, "clusters", cluster.id));
-
-            await batch.commit();
+            await deleteDoc(doc(db, "clusters", cluster.id));
             onClose(); // Close modal on success
         } catch (err) {
             console.error(err);
@@ -195,6 +194,18 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                                     />
                                 ) : (
                                     <div className="text-white/80 font-mono text-base">{cluster.ipAddress || "—"}</div>
+                                )}
+                            </div>
+                            <div>
+                                <div className="text-white/70 mb-2 text-xs font-medium">Subnet Mask</div>
+                                {editMode ? (
+                                    <input
+                                        value={localSubnet}
+                                        onChange={e => setLocalSubnet(e.target.value)}
+                                        className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all"
+                                    />
+                                ) : (
+                                    <div className="text-white/80 font-mono text-base">{cluster.subnetMask || "255.255.255.0"}</div>
                                 )}
                             </div>
                         </div>
@@ -291,7 +302,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                         <Warning size={48} className="text-red-500 mx-auto opacity-80" weight="fill" />
                         <h3 className="text-white font-bold text-lg">Delete Cluster?</h3>
                         <p className="text-white/60 text-sm max-w-xs mx-auto">
-                            This will permanently delete the cluster <b>{cluster.cluster}</b> and ALL its nodes and disks. This action cannot be undone.
+                            This will permanetly delete the cluster <b>{cluster.cluster}</b>. This action cannot be undone. Ensure it is empty first.
                         </p>
 
                         <input

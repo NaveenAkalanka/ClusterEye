@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // [SECURITY] DENY BY DEFAULT
+    // Firestore rules are "deny by default". Any collection or document path
+    // not explicitly matched below will be rejected.
+    // Only 'clusters', 'nodes', 'disks', and 'containers' are allowed.
+
+    // Reusable function to check if the authenticated user matches the provided userId
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Rules for Clusters
+    match /clusters/{clusterId} {
+      // Allow creation if the new document's userId matches the auth uid
+      allow create: if isOwner(request.resource.data.userId);
+      // Allow read, update, delete if the existing document's userId matches the auth uid
+      // For updates, we also ensure the user isn't trying to change the userId to someone else
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+    }
+
+    // Rules for Nodes
+    match /nodes/{nodeId} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+    }
+
+    // Rules for Disks
+    match /disks/{diskId} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+    }
+
+    // Rules for Containers
+    match /containers/{containerId} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+    }
+
+    // Rules for IP Index
+    match /ipIndex/{ipDocs} {
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+    }
+  }
+}

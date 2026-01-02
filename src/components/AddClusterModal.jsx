@@ -1,4 +1,5 @@
 import { XCircle } from "@phosphor-icons/react";
+import CustomSelect from "./CustomSelect";
 
 export default function AddClusterModal({
     onClose,
@@ -9,6 +10,8 @@ export default function AddClusterModal({
     setIpAddress,
     selectedColor,
     setSelectedColor,
+    subnetMask,
+    setSubnetMask,
     saving,
     error,
 }) {
@@ -46,6 +49,17 @@ export default function AddClusterModal({
                             placeholder="e.g. 192.168.1.1"
                             value={ipAddress}
                             onChange={(e) => setIpAddress(e.target.value)}
+                            className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all placeholder:text-white/20"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-white/70 mb-2 text-xs font-medium">Subnet Mask</label>
+                        <input
+                            type="text"
+                            placeholder="e.g. 255.255.255.0"
+                            value={subnetMask}
+                            onChange={(e) => setSubnetMask(e.target.value)}
                             className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all placeholder:text-white/20"
                         />
                     </div>

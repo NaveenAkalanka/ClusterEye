@@ -6,7 +6,6 @@ import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, Sh
 
 export default function Navbar({ user }) {
   const [showMenu, setShowMenu] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const sidebarRef = useRef(null);
   const menuRef = useRef(null);
@@ -67,12 +66,13 @@ export default function Navbar({ user }) {
 
           {showMenu && (
             <div className="absolute top-20 right-0 bg-[#161D22] border border-white/10 p-4 rounded-lg shadow-xl w-64 z-50">
-              <button
-                onClick={() => setShowProfileModal(true)}
-                className="w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer"
+              <Link
+                to="/profile"
+                onClick={() => setShowMenu(false)}
+                className="block w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer"
               >
                 Profile
-              </button>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 rounded-lg cursor-pointer"
@@ -85,25 +85,6 @@ export default function Navbar({ user }) {
 
         {/* Mobile Toggle */}
         <button className="min-[1200px]:hidden text-white text-3xl cursor-pointer" onClick={toggleSidebar}>☰</button>
-
-        {/* Profile Modal */}
-        {showProfileModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
-            <div className="bg-stone-900 border border-white/10 p-8 rounded-2xl w-[400px]">
-              <h2 className="text-white text-3xl font-bold mb-6">User Profile</h2>
-              <div className="space-y-4 text-white/80 mb-8">
-                <p><span className="text-white font-medium">Email:</span> {user?.email}</p>
-                <p><span className="text-white font-medium">Name:</span> {user?.displayName || "N/A"}</p>
-              </div>
-              <button
-                onClick={() => setShowProfileModal(false)}
-                className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Mobile Sidebar */}
@@ -139,12 +120,13 @@ export default function Navbar({ user }) {
                 <ShippingContainer size={32} className="text-[#69639E]" /> Docker
               </Link>
               <div className="h-px bg-white/10 my-2"></div>
-              <button
-                onClick={() => { setShowSidebar(false); setShowProfileModal(true); }}
+              <Link
+                to="/profile"
+                onClick={() => setShowSidebar(false)}
                 className="text-white text-2xl flex items-center gap-4 text-left cursor-pointer"
               >
                 <User size={32} className="text-[#69639E]" /> Profile
-              </button>
+              </Link>
               <button
                 onClick={() => { setShowSidebar(false); handleLogout(); }}
                 className="text-red-400 text-2xl flex items-center gap-4 text-left cursor-pointer"

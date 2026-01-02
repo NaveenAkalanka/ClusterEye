@@ -29,6 +29,7 @@ import {
   Circuitry,
 } from "@phosphor-icons/react";
 import { db, auth } from "../firebaseConfig";
+import { isIpInSubnet, calculateNetworkAddress } from "../utils/network";
 import NodeModal from "../components/NodeModal";
 import AddNodeModal from "../components/AddNodeModal";
 import FilterModal from "../components/FilterModal";
@@ -187,11 +188,12 @@ export default function Nodes() {
     const clObj = clusters.find((c) => c.cluster === cluster);
     if (!clObj?.ipAddress) return setError("Cluster missing base IP.");
 
-    const subnet = clObj.ipAddress.split(".").slice(0, 3).join(".");
-    const nodeNet = ipAddress.split(".").slice(0, 3).join(".");
-
-    if (subnet !== nodeNet)
-      return setError(`IP must match cluster subnet (${subnet}.x)`);
+    // Strict Subnet Validation
+    const mask = clObj.subnetMask || "255.255.255.0"; // Default to /24 if missing
+    if (!isIpInSubnet(ipAddress, clObj.ipAddress, mask)) {
+      const requiredNet = calculateNetworkAddress(clObj.ipAddress, mask);
+      return setError(`IP must be in the ${requiredNet} network (Mask: ${mask})`);
+    }
 
     // check IP collisions
     const allIPs = [

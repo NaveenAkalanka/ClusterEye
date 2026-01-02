@@ -19,6 +19,7 @@ import { db, auth } from "../firebaseConfig";
 import { MagnifyingGlass, Funnel, XCircle, Plus, CaretCircleRight, Globe, HardDrives, Circuitry } from "@phosphor-icons/react";
 import AddClusterModal from "../components/AddClusterModal";
 import ClusterModal from "../components/ClusterModal";
+import { isValidSubnetMask } from "../utils/network";
 
 /* ----------------------------- Component ----------------------------- */
 
@@ -35,6 +36,7 @@ export default function Clusters() {
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [ipAddress, setIpAddress] = useState("");
+  const [subnetMask, setSubnetMask] = useState("255.255.255.0");
   const [selectedColor, setSelectedColor] = useState("#69639E");
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -125,6 +127,9 @@ export default function Clusters() {
     if (!ipRegex.test(ipAddress))
       return setCreateError("Invalid IP format (must be X.X.X.X).");
 
+    if (!isValidSubnetMask(subnetMask))
+      return setCreateError("Invalid subnet mask format.");
+
     // Check duplicates
     const nameExists = clusters.some(
       (c) => c.cluster.toLowerCase() === cluster.toLowerCase()
@@ -142,6 +147,7 @@ export default function Clusters() {
         userId: uid,
         cluster,
         ipAddress,
+        subnetMask,
         color: selectedColor,
         nodes: 0,
         disks: 0,
@@ -153,6 +159,7 @@ export default function Clusters() {
       });
       setName("");
       setIpAddress("");
+      setSubnetMask("255.255.255.0");
       setAddOpen(false);
     } catch (e) {
       console.error(e);
@@ -247,11 +254,11 @@ export default function Clusters() {
           ) : (
             <div className="space-y-2">
               {/* Header Row (Desktop) */}
-              {/* Header Row (Desktop) */}
-              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-[11px] font-bold text-white/40 tracking-wider items-center">
+              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-[11px] font-bold text-white/40 tracking-wider items-center">
                 <div className="w-2"></div> {/* Color Dot Spacer */}
                 <div>Cluster Name</div>
                 <div>Ip Address</div>
+                <div>Subnet Mask</div>
                 <div>Disks</div>
                 <div>Total</div>
                 <div>Used</div>
@@ -264,7 +271,7 @@ export default function Clusters() {
               {filteredClusters.map(c => (
                 <div key={c.id}>
                   {/* Desktop Row */}
-                  <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5">
+                  <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5">
 
                     {/* Color Dot */}
                     <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
@@ -272,6 +279,7 @@ export default function Clusters() {
                     <div className="truncate">{c.cluster}</div>
 
                     <div className="text-white/70 font-mono text-sm truncate">{c.ipAddress || "—"}</div>
+                    <div className="text-white/50 font-mono text-xs truncate">{c.subnetMask || "/24"}</div>
 
                     <div className="text-white/80 text-sm">{c.disks || 0}</div>
 
@@ -358,6 +366,7 @@ export default function Clusters() {
             setAddOpen(false);
             setName("");
             setIpAddress("");
+            setSubnetMask("255.255.255.0");
             setSelectedColor("#69639E");
             setCreateError("");
           }}
@@ -366,12 +375,15 @@ export default function Clusters() {
           setName={setName}
           ipAddress={ipAddress}
           setIpAddress={setIpAddress}
+          subnetMask={subnetMask}
+          setSubnetMask={setSubnetMask}
           selectedColor={selectedColor}
           setSelectedColor={setSelectedColor}
           saving={saving}
           error={createError}
         />
       )}
+
       {/* View/Edit Modal - Derive active cluster from ID */}
       {viewClusterId && (() => {
         const activeCluster = clusters.find(c => c.id === viewClusterId);
@@ -382,15 +394,14 @@ export default function Clusters() {
             uid={uid}
             allClusters={clusters}
             allNodes={nodes}
+            disks={disks}
           />
         ) : null;
       })()}
 
-
     </div>
   );
 }
-
 /* ---------------------------- Components ---------------------------- */
 
 function StatCard({ label, value, fill }) {

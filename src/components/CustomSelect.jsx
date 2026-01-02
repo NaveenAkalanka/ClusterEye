@@ -17,7 +17,7 @@ export default function CustomSelect({
     options = [],
     placeholder = "Select...",
     disabled = false,
-    className = "",
+    className = "h-10",
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
@@ -55,7 +55,7 @@ export default function CustomSelect({
             {/* Trigger */}
             <div
                 onClick={() => !disabled && setIsOpen(!isOpen)}
-                className={`h-10 bg-[#161D22] border border-white/5 rounded-xl px-4 flex items-center justify-between text-sm transition-all hover:bg-[#1c252b] cursor-pointer ${isOpen ? "border-white/20 bg-[#1c252b]" : ""
+                className={`h-full bg-[#161D22] border border-white/5 rounded-xl px-4 flex items-center justify-between text-sm transition-all hover:bg-[#1c252b] cursor-pointer ${isOpen ? "border-white/20 bg-[#1c252b]" : ""
                     }`}
             >
                 <span className={selectedOption ? "text-white" : "text-white/40"}>

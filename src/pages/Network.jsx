@@ -18,7 +18,9 @@ export default function Network() {
   const [filterType, setFilterType] = useState("");
   const [filterCluster, setFilterCluster] = useState("");
 
+  // Matrix State
   const [matrixCluster, setMatrixCluster] = useState("");
+  const [matrixSubnet, setMatrixSubnet] = useState("");
 
   /* ---------------- Auth & Data ---------------- */
   useEffect(() => {
@@ -45,9 +47,9 @@ export default function Network() {
     return () => { unsubNodes(); unsubClusters(); };
   }, [uid]);
 
-  // Set default matrix cluster
+  // Auto-select first cluster on load
   useEffect(() => {
-    if (clusters.length > 0 && !matrixCluster) {
+    if (clusters && clusters.length > 0 && !matrixCluster) {
       setMatrixCluster(clusters[0].cluster);
     }
   }, [clusters, matrixCluster]);
@@ -55,41 +57,36 @@ export default function Network() {
   /* ---------------- Logic: IP Validation ---------------- */
   const validation = useMemo(() => {
     const ipRegex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-    const allIPs = [...nodes.map(n => n.ipAddress), ...clusters.map(c => c.ipAddress)];
+
+    // SAFE MAPPING
+    const nodeIPs = (nodes || []).map(n => n?.ipAddress || "").filter(Boolean);
+    const clusterIPs = (clusters || []).map(c => c?.ipAddress || "").filter(Boolean);
+    const allIPs = [...nodeIPs, ...clusterIPs];
+
     const duplicates = allIPs.filter((ip, idx) => ip && allIPs.indexOf(ip) !== idx);
 
     return {
       isInvalid: (ip) => !ip || !ipRegex.test(ip),
-      isDuplicate: (ip) => duplicates.includes(ip)
+      isDuplicate: (ip) => ip && duplicates.includes(ip)
     };
   }, [nodes, clusters]);
 
-  /* ---------------- Matrix Logic ---------------- */
-  const matrixActiveIndices = useMemo(() => {
-    if (!matrixCluster) return [];
-    return nodes
-      .filter(n => n.cluster === matrixCluster)
-      .map(n => {
-        const parts = n.ipAddress.split('.');
-        return parts.length === 4 ? parseInt(parts[3]) : -1;
-      });
-  }, [nodes, matrixCluster]);
-
   /* ---------------- Filters ---------------- */
   const filteredData = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    let nResult = nodes.filter(n =>
-      (!q || n.node.toLowerCase().includes(q) || n.ipAddress.includes(q))
+    const q = (search || "").toLowerCase().trim();
+
+    // SAFE FILTERING
+    let nResult = (nodes || []).filter(n =>
+      n && (!q || (n.node || "").toLowerCase().includes(q) || (n.ipAddress || "").includes(q))
     );
-    let cResult = clusters.filter(c =>
-      (!q || c.cluster.toLowerCase().includes(q) || c.ipAddress.includes(q))
+    let cResult = (clusters || []).filter(c =>
+      c && (!q || (c.cluster || "").toLowerCase().includes(q) || (c.ipAddress || "").includes(q))
     );
 
     // Apply active filters
     if (filterType) nResult = nResult.filter(n => n.type === filterType);
     if (filterCluster) {
       nResult = nResult.filter(n => n.cluster === filterCluster);
-      // For clusters tab, filterCluster just selects that specific cluster
       cResult = cResult.filter(c => c.cluster === filterCluster);
     }
 
@@ -101,6 +98,46 @@ export default function Network() {
     setFilterType("");
     setFilterCluster("");
   }
+
+  // Extract Subnets for selected Cluster (Visual Grouping by /24)
+  const availableSubnets = useMemo(() => {
+    if (!matrixCluster || !filteredData.nodes) return [];
+
+    const clusterNodes = filteredData.nodes.filter(n => n && n.cluster === matrixCluster);
+    const subnets = new Set();
+
+    clusterNodes.forEach(n => {
+      if (n && n.ipAddress) {
+        const parts = n.ipAddress.split('.');
+        if (parts.length === 4) {
+          subnets.add(parts.slice(0, 3).join('.'));
+        }
+      }
+    });
+    return Array.from(subnets).sort();
+  }, [filteredData.nodes, matrixCluster]);
+
+  // Auto-select first subnet
+  useEffect(() => {
+    if (availableSubnets.length > 0 && !availableSubnets.includes(matrixSubnet)) {
+      setMatrixSubnet(availableSubnets[0]);
+    } else if (availableSubnets.length === 0) {
+      setMatrixSubnet("");
+    }
+  }, [availableSubnets, matrixSubnet]);
+
+  /* ---------------- Matrix Logic ---------------- */ // Matrix Logic
+  const matrixActiveIndices = useMemo(() => {
+    if (!matrixCluster || !matrixSubnet || !filteredData.nodes) return [];
+
+    return filteredData.nodes
+      .filter(n => n && n.cluster === matrixCluster && n.ipAddress && n.ipAddress.startsWith(matrixSubnet + "."))
+      .map(n => {
+        const parts = n.ipAddress.split('.');
+        return parts.length === 4 ? parseInt(parts[3]) : -1;
+      });
+  }, [filteredData.nodes, matrixCluster, matrixSubnet]);
+
 
   /* ---------------- UI Components ---------------- */
   return (
@@ -142,8 +179,8 @@ export default function Network() {
 
         {/* Stats - Compact for Sidebar */}
         <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Nodes" value={nodes.length} icon={Circuitry} compact />
-          <StatCard label="Gateways" value={clusters.length} icon={Globe} compact />
+          <StatCard label="Nodes" value={(nodes || []).length} icon={Circuitry} compact />
+          <StatCard label="Clusters" value={(clusters || []).length} icon={Globe} compact />
         </div>
 
         {/* NETWORK MATRIX */}
@@ -157,11 +194,23 @@ export default function Network() {
             <CustomSelect
               value={matrixCluster}
               onChange={setMatrixCluster}
-              options={clusters.map(c => c.cluster)}
+              options={(clusters || []).map(c => c.cluster)}
               placeholder="Select Cluster"
               className="w-full"
             />
           </div>
+
+          {availableSubnets.length > 1 && (
+            <div className="relative z-10 -mt-2">
+              <CustomSelect
+                value={matrixSubnet}
+                onChange={setMatrixSubnet}
+                options={availableSubnets.map(s => ({ value: s, label: s + ".0/24" }))}
+                placeholder="Select Subnet"
+                className="w-full text-xs"
+              />
+            </div>
+          )}
 
           <div className="bg-[#161D22]/40 rounded-xl p-3 border border-white/5 shadow-inner">
             <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-[2px]">
@@ -178,8 +227,8 @@ export default function Network() {
               })}
             </div>
             <div className="flex justify-between items-center mt-2 px-1 border-t border-white/5 pt-1">
-              <div className="text-[9px] text-white/20 font-mono">1</div>
-              <div className="text-[9px] text-white/20 font-mono">254</div>
+              <div className="text-[9px] text-white/20 font-mono">{matrixSubnet ? matrixSubnet + ".1" : "1"}</div>
+              <div className="text-[9px] text-white/20 font-mono">{matrixSubnet ? matrixSubnet + ".254" : "254"}</div>
             </div>
           </div>
           <div className="text-[10px] text-white/30 text-center flex justify-center gap-4">
@@ -204,16 +253,17 @@ export default function Network() {
             onClick={() => setActiveTab("clusters")}
             className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "clusters" ? "bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/5"}`}
           >
-            Cluster Gateways
+            Clusters
           </button>
         </div>
 
         {/* TABLE HEADERS */}
-        <div className="grid grid-cols-[1.5fr_1fr_1.5fr] md:grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.5fr] gap-4 px-4 text-[10px] font-bold text-white/40 uppercase tracking-wider mb-[-10px]">
+        <div className="grid grid-cols-[1.5fr_1fr_1.5fr] md:grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 px-4 text-[10px] font-bold text-white/40 uppercase tracking-wider mb-[-10px]">
           <div className="hidden md:block">Node ID</div>
           <div>Name</div>
           <div className="hidden md:block">Type</div>
           <div className="hidden md:block">Cluster</div>
+          <div className="hidden md:block">Subnet Mask</div>
           <div className="text-right md:text-left">IP Address</div>
         </div>
 
@@ -230,7 +280,7 @@ export default function Network() {
                   type={n.type}
                   ip={n.ipAddress}
                   cluster={n.cluster}
-                  clusterColor={clusters.find(c => c.cluster === n.cluster)?.color}
+                  clusterColor={(clusters || []).find(c => c.cluster === n.cluster)?.color}
                   validation={validation}
                 />
               ))}
@@ -244,6 +294,7 @@ export default function Network() {
                   name={c.cluster}
                   type="Cluster"
                   ip={c.ipAddress}
+                  subnetMask={c.subnetMask}
                   cluster={c.cluster} // Self-referential for color
                   clusterColor={c.color}
                   validation={validation}
@@ -270,7 +321,7 @@ export default function Network() {
   );
 }
 
-function NetworkRow({ name, nodeId, type, ip, cluster, clusterColor, validation }) {
+function NetworkRow({ name, nodeId, type, ip, subnetMask, cluster, clusterColor, validation }) {
   const isBad = validation.isInvalid(ip);
   const isDup = validation.isDuplicate(ip);
   const statusColor = isBad || isDup ? "text-red-400" : "text-white/70";
@@ -279,7 +330,7 @@ function NetworkRow({ name, nodeId, type, ip, cluster, clusterColor, validation 
   return (
     <div className={`rounded-xl border transition-all group ${statusBg}`}>
       {/* DESKTOP ROW */}
-      <div className="hidden md:grid grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.5fr] gap-4 p-4 items-center">
+      <div className="hidden md:grid grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 p-4 items-center">
         {/* Node ID */}
         <div className="text-xs font-mono text-white/40 truncate">{nodeId || "—"}</div>
         {/* Name */}
@@ -293,6 +344,8 @@ function NetworkRow({ name, nodeId, type, ip, cluster, clusterColor, validation 
         </div>
         {/* Cluster */}
         <div className="text-xs text-white/50">{cluster}</div>
+        {/* Subnet Mask */}
+        <div className="text-xs text-white/50 font-mono">{subnetMask || "—"}</div>
         {/* IP */}
         <div className={`text-sm font-mono flex items-center gap-2 ${statusColor}`}>
           {ip}

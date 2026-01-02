@@ -381,6 +381,7 @@ export default function Disks() {
         }}
         handleCreate={handleCreate}
         clusters={clusters}
+        disks={disks} // Ensure disks is passed
         disk={diskName} setDisk={setDiskName}
         model={model} setModel={setModel}
         role={role} setRole={setRole}
@@ -397,6 +398,7 @@ export default function Disks() {
           uid={uid}
           allNodes={nodes}
           clusters={clusters}
+          allDisks={disks} // Pass allDisks for validation
         />
       )}
 
