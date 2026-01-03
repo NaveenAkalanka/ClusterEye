@@ -97,14 +97,10 @@ This project implements strict **Firestore Security Rules** to ensure data integ
 *   **Input Validation:** Strict type handling and regex validation for IP addresses and Node IDs.
 *   **XSS Protection:** Zero usage of `dangerouslySetInnerHTML`.
 
-## 📸 Screenshots
 
-*(Add screenshots of your dashboard here)*
 
 ## 📄 License
 
 This project is open-source and available under the [MIT License](LICENSE).
 
----
 
-Based on **Antigravity** architecture.
