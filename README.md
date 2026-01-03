@@ -90,12 +90,7 @@ Common indexes needed:
 *   `disks`: `userId` (Asc) + `disk` (Asc)
 *   `clusters`: `userId` (Asc) + `cluster` (Asc)
 
-## 🔒 Security
 
-This project implements strict **Firestore Security Rules** to ensure data integrity and isolation:
-*   **Authentication Required:** Use `isOwner(userId)` checks for all read/write operations.
-*   **Input Validation:** Strict type handling and regex validation for IP addresses and Node IDs.
-*   **XSS Protection:** Zero usage of `dangerouslySetInnerHTML`.
 
 
 
