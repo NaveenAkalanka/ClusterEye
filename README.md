@@ -2,7 +2,7 @@
   <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="200" />
 </div>
 
-# ClusterEye 👁️
+# ClusterEye
 
 > **Advanced Cluster Monitoring & Management Dashboard**
 
