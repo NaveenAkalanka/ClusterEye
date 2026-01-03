@@ -2,8 +2,10 @@ import { useState } from "react";
 import { addDoc, collection } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
+import NumberStepper from "./NumberStepper";
 
-export default function AddContainerModal({ onClose, nodes, containers }) {
+export default function AddContainerModal({ onClose, nodes, containers, clusters }) {
+    const [selectedCluster, setSelectedCluster] = useState("");
     const [containerId, setContainerId] = useState("");
     const [name, setName] = useState("");
     const [nodeId, setNodeId] = useState("");
@@ -11,8 +13,12 @@ export default function AddContainerModal({ onClose, nodes, containers }) {
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
-    // Filter only valid nodes
-    const validNodes = nodes.filter(n => n.nodeId && n.node);
+    // Filter nodes based on selected cluster
+    const validNodes = nodes.filter(n => {
+        if (!n.nodeId || !n.node) return false;
+        if (selectedCluster && n.cluster !== selectedCluster) return false;
+        return true;
+    });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -112,26 +118,48 @@ export default function AddContainerModal({ onClose, nodes, containers }) {
                         />
                     </div>
 
-                    {/* Node */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Host Node</label>
-                        <CustomSelect
-                            value={nodeId}
-                            onChange={setNodeId}
-                            options={validNodes.map(n => ({ value: n.nodeId, label: n.node }))}
-                            placeholder="Select Node"
-                        />
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* Cluster Filter */}
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Cluster</label>
+                            <CustomSelect
+                                value={selectedCluster}
+                                onChange={(v) => { setSelectedCluster(v); setNodeId(""); }}
+                                options={clusters.map(c => ({ value: c.cluster, label: c.cluster }))}
+                                placeholder="Select Cluster"
+                                renderOption={(opt) => {
+                                    const c = clusters.find(cl => cl.cluster === opt.value);
+                                    return (
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c?.color || "#69639E" }} />
+                                            <span>{opt.label}</span>
+                                        </div>
+                                    );
+                                }}
+                            />
+                        </div>
+
+                        {/* Node */}
+                        <div className="flex flex-col gap-2">
+                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Host Node</label>
+                            <CustomSelect
+                                value={nodeId}
+                                onChange={setNodeId}
+                                options={validNodes.map(n => ({ value: n.nodeId, label: n.node }))}
+                                placeholder={selectedCluster ? "Select Node" : "Choose Cluster First"}
+                                disabled={!selectedCluster}
+                            />
+                        </div>
                     </div>
 
                     {/* Port */}
                     <div className="flex flex-col gap-2">
                         <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Port</label>
-                        <input
-                            type="number"
+                        <NumberStepper
                             value={port}
-                            onChange={(e) => setPort(e.target.value)}
+                            onChange={setPort}
                             placeholder="e.g. 8080"
-                            className="input font-mono"
+                            className="w-full font-mono"
                         />
                     </div>
 

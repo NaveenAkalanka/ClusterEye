@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
+import NumberStepper from "./NumberStepper";
 import { Eye, EyeSlash, XCircle, ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react";
 
 export default function ContainerModal({ onClose, container, nodes, containers }) {
@@ -201,12 +202,10 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                             {/* Port */}
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Port</label>
-                                <input
-                                    type="number"
-                                    disabled={!isEdit}
+                                <NumberStepper
                                     value={port}
-                                    onChange={(e) => setPort(e.target.value)}
-                                    className={`input font-mono ${!isEdit && "border-transparent bg-transparent pl-0 text-[#A8C9AD]"}`}
+                                    onChange={setPort}
+                                    className={`font-mono ${!isEdit ? "pointer-events-none opacity-100 border-none bg-transparent" : "w-full"}`}
                                 />
                             </div>
                         </div>

@@ -3,6 +3,7 @@ import { XCircle, HardDrives } from "@phosphor-icons/react";
 import { doc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
+import NumberStepper from "./NumberStepper";
 
 export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allDisks = [] }) {
     const [editMode, setEditMode] = useState(false);
@@ -15,6 +16,9 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
         cluster: disk.cluster,
         totalGB: (disk.total || 0) / 1_000_000_000
     });
+    // ... (omitted parts handled by replace_file_content logic if not matching exactly, but we need exact match for huge blocks)
+    // I will target just the import area and the specific field to be safe.
+
 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
@@ -175,12 +179,11 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
                             />
                         </Field>
                         <Field label="Total Size (GB)">
-                            <input
-                                type="number"
+                            <NumberStepper
                                 value={local.totalGB}
-                                onChange={(e) => setLocal({ ...local, totalGB: e.target.value })}
-                                disabled={!editMode}
-                                className="input font-mono"
+                                onChange={(v) => setLocal({ ...local, totalGB: v })}
+                                min={1}
+                                className={!editMode ? "pointer-events-none opacity-50 border-none bg-transparent" : "w-full"}
                             />
                         </Field>
                     </div>

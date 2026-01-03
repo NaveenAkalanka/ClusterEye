@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { XCircle } from "@phosphor-icons/react";
 import CustomSelect from "./CustomSelect";
+import NumberStepper from "./NumberStepper";
 
 export default function AddDiskModal({
     open,
@@ -97,13 +98,12 @@ export default function AddDiskModal({
                     </Field>
 
                     <Field label="Total Size (GB)">
-                        <input
-                            type="number"
-                            min="1"
-                            placeholder="e.g. 1000"
+                        <NumberStepper
                             value={totalGB}
-                            onChange={(e) => setTotalGB(e.target.value)}
-                            className="input w-full font-mono"
+                            onChange={setTotalGB}
+                            min={1}
+                            placeholder="e.g. 1000"
+                            className="w-full"
                         />
                     </Field>
 

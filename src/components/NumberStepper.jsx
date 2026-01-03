@@ -1,6 +1,6 @@
 import { Minus, Plus } from "@phosphor-icons/react";
 
-export default function NumberStepper({ value, onChange, min = 0, max, step = 1, className = "" }) {
+export default function NumberStepper({ value, onChange, min = 0, max, step = 1, className = "", placeholder = "" }) {
     const handleDecrement = () => {
         const newVal = Number(value) - step;
         if (newVal >= min) onChange(newVal);
@@ -25,7 +25,8 @@ export default function NumberStepper({ value, onChange, min = 0, max, step = 1,
                 type="number"
                 value={value}
                 onChange={(e) => onChange(Number(e.target.value))}
-                className="w-full bg-transparent text-center text-sm font-semibold outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                placeholder={placeholder}
+                className="w-full bg-transparent text-center text-sm font-semibold outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-white/20"
                 min={min}
                 max={max}
             />

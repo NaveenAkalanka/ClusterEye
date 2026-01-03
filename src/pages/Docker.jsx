@@ -279,6 +279,7 @@ export default function Docker() {
           onClose={() => setShowAdd(false)}
           nodes={nodes}
           containers={containers}
+          clusters={clusters}
         />
       )}
       {viewContainer && (
