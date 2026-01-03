@@ -1,10 +1,10 @@
-<div align="center">
-  <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="200" />
-</div>
-
 # ClusterEye 👁️
 
 > **Advanced Cluster Monitoring & Management Dashboard**
+
+<div align="center">
+  <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="200" />
+</div>
 
 **ClusterEye** is a modern, high-performance dashboard designed for visualizing and managing hybrid infrastructure. It monitoring ProxMox clusters, LXC containers, VMs, physical disks, and network topology in a single, unified interface. Built with a focus on aesthetics, strict typography, and real-time data synchronization.
 
@@ -60,6 +60,35 @@
     ```bash
     npm run dev
     ```
+
+## 🔥 Firebase Setup
+
+To get ClusterEye running, you need to configure a Firebase project.
+
+### 1. Create Project
+Go to [Firebase Console](https://console.firebase.google.com/) and create a new project.
+
+### 2. Enable Authentication
+1.  Navigate to **Build > Authentication**.
+2.  Click **Get Started**.
+3.  Select **Email/Password** as a Sign-in method and **Enable** it.
+
+### 3. Create Cloud Firestore Database
+1.  Navigate to **Build > Firestore Database**.
+2.  Click **Create Database**.
+3.  Choose a location (e.g., `us-central1`).
+4.  Start in **Production mode**.
+
+### 4. Deploy Security Rules
+Copy the content of `firestore.rules` (included in this repo) and paste it into the **Rules** tab of your Firestore Database console.
+> **Note:** These rules enforce strict data ownership. Users can only see and edit their own data.
+
+### 5. Create Indexes (Optional)
+If you encounter "Missing Index" errors in the browser console while filtering, strictly follow the link provided in the error message to automatically create the required Composite Indexes.
+Common indexes needed:
+*   `nodes`: `userId` (Asc) + `node` (Asc)
+*   `disks`: `userId` (Asc) + `disk` (Asc)
+*   `clusters`: `userId` (Asc) + `cluster` (Asc)
 
 ## 🔒 Security
 
