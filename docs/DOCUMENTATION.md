@@ -2,6 +2,7 @@
 
 **Date:** 2026-01-04
 **Project:** ClusterEye
+**Repository:** [GitHub](https://github.com/NaveenAkalanka/ClusterEye)
 **License:** CC BY-NC-SA 4.0
 
 ---
