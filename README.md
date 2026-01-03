@@ -80,7 +80,7 @@ Go to [Firebase Console](https://console.firebase.google.com/) and create a new 
 4.  Start in **Production mode**.
 
 ### 4. Deploy Security Rules
-Copy the content of `firestore.rules` (included in this repo) and paste it into the **Rules** tab of your Firestore Database console.
+Copy the content of [`firestore.rules`](firestore.rules) (included in this repo) and paste it into the **Rules** tab of your Firestore Database console.
 > **Note:** These rules enforce strict data ownership. Users can only see and edit their own data.
 
 ### 5. Create Indexes (Optional)
