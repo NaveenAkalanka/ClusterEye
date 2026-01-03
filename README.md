@@ -1,10 +1,10 @@
+<div align="center">
+  <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="200" />
+</div>
+
 # ClusterEye 👁️
 
 > **Advanced Cluster Monitoring & Management Dashboard**
-
-<div align="center">
-  <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="120" />
-</div>
 
 **ClusterEye** is a modern, high-performance dashboard designed for visualizing and managing hybrid infrastructure. It monitoring ProxMox clusters, LXC containers, VMs, physical disks, and network topology in a single, unified interface. Built with a focus on aesthetics, strict typography, and real-time data synchronization.
 
