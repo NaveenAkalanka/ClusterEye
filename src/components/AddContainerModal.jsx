@@ -95,7 +95,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
 
                     {/* Container ID */}
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Container ID</label>
+                        <label className="text-xs font-bold text-white/50 tracking-wider">Container ID</label>
                         <input
                             autoFocus
                             type="text"
@@ -108,7 +108,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
 
                     {/* Name */}
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Container Name</label>
+                        <label className="text-xs font-bold text-white/50 tracking-wider">Container Name</label>
                         <input
                             type="text"
                             value={name}
@@ -121,7 +121,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                     <div className="grid grid-cols-2 gap-4">
                         {/* Cluster Filter */}
                         <div className="flex flex-col gap-2">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Cluster</label>
+                            <label className="text-xs font-bold text-white/50 tracking-wider">Cluster</label>
                             <CustomSelect
                                 value={selectedCluster}
                                 onChange={(v) => { setSelectedCluster(v); setNodeId(""); }}
@@ -141,7 +141,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
 
                         {/* Node */}
                         <div className="flex flex-col gap-2">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Host Node</label>
+                            <label className="text-xs font-bold text-white/50 tracking-wider">Host Node</label>
                             <CustomSelect
                                 value={nodeId}
                                 onChange={setNodeId}
@@ -154,7 +154,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
 
                     {/* Port */}
                     <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Port</label>
+                        <label className="text-xs font-bold text-white/50 tracking-wider">Port</label>
                         <NumberStepper
                             value={port}
                             onChange={setPort}

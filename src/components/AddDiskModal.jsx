@@ -133,7 +133,7 @@ export default function AddDiskModal({
 function Field({ label, children }) {
     return (
         <div>
-            <div className="text-white/70 mb-2 text-xs font-medium">{label}</div>
+            <div className="text-white/50 mb-2 text-xs font-bold tracking-wider">{label}</div>
             {children}
         </div>
     );

@@ -310,8 +310,17 @@ export default function Nodes() {
 
     if (sortConfig.key) {
       result.sort((a, b) => {
-        const A = a[sortConfig.key] || "";
-        const B = b[sortConfig.key] || "";
+        let A = a[sortConfig.key];
+        let B = b[sortConfig.key];
+
+        if (sortConfig.key === "disk") {
+          A = a.allocations?.map(x => x.disk).join(", ") || "";
+          B = b.allocations?.map(x => x.disk).join(", ") || "";
+        }
+
+        A = (A || "").toString().toLowerCase();
+        B = (B || "").toString().toLowerCase();
+
         if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
         if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
         return 0;
@@ -326,6 +335,7 @@ export default function Nodes() {
     setFilterType("");
     setFilterCluster("");
     setFilterDisk("");
+    setSortConfig({ key: null, direction: "asc" });
   }
 
   function resetAddForm() {
@@ -360,7 +370,7 @@ export default function Nodes() {
           <div className="w-full h-12 rounded-xl p-[2px] bg-gradient-to-r from-[#A8C9AD] to-[#69639E] transition-all">
             <input
               type="text"
-              placeholder="Search..."
+              placeholder="Search Nodes..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full h-full bg-[#161D22] rounded-[10px] px-4 text-white text-base focus:outline-none placeholder:text-white/40"
@@ -396,9 +406,9 @@ export default function Nodes() {
 
         {/* Row 3: Stats (Grid on mobile, column on desktop) */}
         <div className="flex-1 grid grid-cols-3 md:flex md:flex-col gap-3 mt-2 min-h-0">
-          <StatCard mockup label="Total nodes" value={totalNodes} fill />
-          <StatCard mockup label="Total vms" value={totalVM} fill />
-          <StatCard mockup label="Total lxcs" value={totalLXC} fill />
+          <StatCard mockup label="Total Nodes" value={totalNodes} fill />
+          <StatCard mockup label="Total VMs" value={totalVM} fill />
+          <StatCard mockup label="Total LXCs" value={totalLXC} fill />
         </div>
       </aside>
 
@@ -406,14 +416,28 @@ export default function Nodes() {
       <section className="flex-1 bg-[#0D100D] rounded-[20px] p-4 md:p-6 md:h-full md:overflow-y-auto custom-scrollbar h-fit">
 
         {/* Table Headers (Hidden on mobile) */}
-        <div className="hidden md:grid grid-cols-7 text-white/50 text-sm font-semibold mb-4 px-6">
-          <span>ID</span>
-          <span>Node</span>
-          <span>Type</span>
-          <span>Cluster</span>
-          <span>Disk</span>
-          <span>Allocated</span>
-          <span>Ip address</span>
+        <div className="hidden md:grid grid-cols-7 text-white/50 text-xs font-bold tracking-wider mb-4 px-6 select-none">
+          <div onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            ID {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("node")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Node {sortConfig.key === "node" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("type")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Type {sortConfig.key === "type" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Disk {sortConfig.key === "disk" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("allocated")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Allocated {sortConfig.key === "allocated" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("ipAddress")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
         </div>
 
         {/* Table Rows */}
@@ -480,15 +504,15 @@ export default function Nodes() {
                   {/* Row 3: Stats Grid (Compact) */}
                   <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-white/5">
                     <div>
-                      <div className="text-[9px] text-white/30 uppercase font-bold">IP</div>
+                      <div className="text-[9px] text-white/30 font-bold">IP</div>
                       <div className="text-xs text-white/80 font-mono truncate">{n.ipAddress}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 uppercase font-bold">Alloc</div>
+                      <div className="text-[9px] text-white/30 font-bold">Alloc</div>
                       <div className="text-xs text-white/80">{fmtBytes(n.allocated || 0)}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 uppercase font-bold">Disks</div>
+                      <div className="text-[9px] text-white/30 font-bold">Disks</div>
                       <div className="text-xs text-white/60 truncate">{n.allocations?.map(a => a.disk).join(", ") || "—"}</div>
                     </div>
                   </div>

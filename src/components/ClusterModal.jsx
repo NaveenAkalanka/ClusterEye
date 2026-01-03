@@ -241,15 +241,15 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                         {!editMode && (
                             <div className="grid grid-cols-3 gap-3">
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] uppercase font-bold tracking-wider mb-1">Nodes</div>
+                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Nodes</div>
                                     <div className="text-white text-xl font-bold">{cluster.nodes || 0}</div>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] uppercase font-bold tracking-wider mb-1">Disks</div>
+                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Disks</div>
                                     <div className="text-white text-xl font-bold">{cluster.disks || 0}</div>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] uppercase font-bold tracking-wider mb-1">Storage</div>
+                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Storage</div>
                                     <div className="text-white text-xl font-bold">{(cluster.total / 1000000000).toFixed(0)} GB</div>
                                 </div>
                             </div>

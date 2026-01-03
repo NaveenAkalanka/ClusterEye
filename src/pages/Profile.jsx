@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { updateProfile, verifyBeforeUpdateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser } from "firebase/auth";
 import { collection, query, where, getDocs, writeBatch, doc } from "firebase/firestore";
 import { auth, db } from "../firebaseConfig";
-import { User, Envelope, LockKey, FloppyDisk, Warning, Trash } from "@phosphor-icons/react";
+import { User, Envelope, LockKey, FloppyDisk, Warning, Trash, CheckCircle } from "@phosphor-icons/react";
 
 export default function Profile() {
     const user = auth.currentUser;
@@ -49,8 +49,12 @@ export default function Profile() {
         setMessage({ type: "", text: "" });
         try {
             await reauthenticate(currentPassword);
+
             await verifyBeforeUpdateEmail(user, email);
-            setMessage({ type: "success", text: "Verification email sent. Please check your inbox to confirm the change." });
+            setMessage({
+                type: "success",
+                text: "Verification email sent. Please check your inbox (and spam folder) to confirm the change."
+            });
             setReauthMode(null);
             setCurrentPassword("");
         } catch (error) {
@@ -154,18 +158,35 @@ export default function Profile() {
                         <User size={32} className="text-[#A8C9AD]" weight="duotone" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold text-white tracking-tight">Account Settings</h1>
+                        <h1 className="text-3xl font-bold text-white tracking-tight">Account settings</h1>
                         <p className="text-white/40">Manage your profile and security preferences.</p>
                     </div>
                 </div>
 
                 {message.text && (
-                    <div className={`p-4 rounded-xl border flex items-center gap-3 ${message.type === "success"
-                        ? "bg-green-500/10 border-green-500/20 text-green-200"
-                        : "bg-red-500/10 border-red-500/20 text-red-200"
-                        }`}>
-                        {message.type === "error" && <Warning size={20} weight="fill" />}
-                        {message.text}
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+                        <div className="bg-[#0D100D] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl relative animate-scaleIn">
+                            <div className="flex flex-col items-center text-center">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${message.type === "success"
+                                    ? "bg-green-500/10 text-green-400"
+                                    : "bg-red-500/10 text-red-400"
+                                    }`}>
+                                    {message.type === "success" ? <CheckCircle size={24} weight="fill" /> : <Warning size={24} weight="fill" />}
+                                </div>
+                                <h3 className="text-lg font-bold text-white mb-2">
+                                    {message.type === "success" ? "Success" : "Error"}
+                                </h3>
+                                <p className="text-white/60 text-sm mb-6">
+                                    {message.text}
+                                </p>
+                                <button
+                                    onClick={() => setMessage({ type: "", text: "" })}
+                                    className="w-full py-2.5 bg-[#161D22] text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -173,19 +194,19 @@ export default function Profile() {
                 <section className="bg-[#0D100D] border border-white/5 rounded-3xl p-6 md:p-8 animate-fadeInUp" style={{ animationDelay: '0ms' }}>
                     <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                         <User size={24} className="text-[#69639E]" weight="duotone" />
-                        Public Profile
+                        Public profile
                     </h2>
 
                     <div className="space-y-6 max-w-xl">
                         <div>
-                            <label className="text-white/70 text-sm font-medium mb-2 block">Display Name</label>
+                            <label className="text-white/70 text-sm font-medium mb-2 block">Display name</label>
                             <div className="relative">
                                 <input
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
                                     className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-[#69639E]/50 focus:bg-[#161D22]/80 outline-none transition-all pl-11"
-                                    placeholder="Your Name"
+                                    placeholder="Your name"
                                 />
                                 <User size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
                             </div>
@@ -197,7 +218,7 @@ export default function Profile() {
                             className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <FloppyDisk size={18} />
-                            Save Profile
+                            Save profile
                         </button>
                     </div>
                 </section>
@@ -206,7 +227,7 @@ export default function Profile() {
                 <section className="bg-[#0D100D] border border-white/5 rounded-3xl p-6 md:p-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
                     <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
                         <Envelope size={24} className="text-blue-400" weight="duotone" />
-                        Email Address
+                        Email address
                     </h2>
 
                     <div className="space-y-6 max-w-xl">
@@ -226,13 +247,13 @@ export default function Profile() {
 
                         {reauthMode === "email" && (
                             <div className="bg-[#161D22] p-4 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-2">
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm Password to Update Email</label>
+                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm password to update email</label>
                                 <input
                                     type="password"
                                     value={currentPassword}
                                     onChange={(e) => setCurrentPassword(e.target.value)}
                                     className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none mb-3"
-                                    placeholder="Current Password"
+                                    placeholder="Current password"
                                 />
                             </div>
                         )}
@@ -243,7 +264,7 @@ export default function Profile() {
                             className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <FloppyDisk size={18} />
-                            {reauthMode === "email" ? "Confirm & Update" : "Update Email"}
+                            {reauthMode === "email" ? "Confirm & update" : "Update email"}
                         </button>
                     </div>
                 </section>
@@ -258,36 +279,36 @@ export default function Profile() {
                     <div className="space-y-6 max-w-xl">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label className="text-white/70 text-sm font-medium mb-2 block">New Password</label>
+                                <label className="text-white/70 text-sm font-medium mb-2 block">New password</label>
                                 <input
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                     className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-red-400/50 outline-none transition-all"
-                                    placeholder="New Password"
+                                    placeholder="New password"
                                 />
                             </div>
                             <div>
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm Password</label>
+                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm password</label>
                                 <input
                                     type="password"
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                     className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-red-400/50 outline-none transition-all"
-                                    placeholder="Confirm New Password"
+                                    placeholder="Confirm new password"
                                 />
                             </div>
                         </div>
 
                         {reauthMode === "password" && (
                             <div className="bg-[#161D22] p-4 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-2">
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm Current Password</label>
+                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm current password</label>
                                 <input
                                     type="password"
                                     value={currentPassword}
                                     onChange={(e) => setCurrentPassword(e.target.value)}
                                     className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none mb-3"
-                                    placeholder="Current Password"
+                                    placeholder="Current password"
                                 />
                             </div>
                         )}
@@ -298,7 +319,7 @@ export default function Profile() {
                             className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <FloppyDisk size={18} />
-                            {reauthMode === "password" ? "Confirm & Change" : "Change Password"}
+                            {reauthMode === "password" ? "Confirm & change" : "Change password"}
                         </button>
                     </div>
                 </section>
@@ -307,7 +328,7 @@ export default function Profile() {
                 <section className="bg-[#0D100D] border border-red-500/20 rounded-3xl p-6 md:p-8 animate-fadeInUp mt-8" style={{ animationDelay: '300ms' }}>
                     <h2 className="text-xl font-bold text-red-500 mb-6 flex items-center gap-2">
                         <Trash size={24} weight="duotone" />
-                        Danger Zone
+                        Danger zone
                     </h2>
 
                     <div className="space-y-4 max-w-xl">
@@ -321,7 +342,7 @@ export default function Profile() {
                                 className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-xl font-bold text-sm transition-all border border-red-500/10 flex items-center gap-2"
                             >
                                 <Trash size={18} />
-                                Delete Account
+                                Delete account
                             </button>
                         ) : (
                             <div className="bg-[#161D22] p-6 rounded-xl border border-red-500/20 animate-in fade-in slide-in-from-top-2 space-y-4">
@@ -329,13 +350,13 @@ export default function Profile() {
                                     Are you absolutely sure?
                                 </div>
                                 <div>
-                                    <label className="text-white/70 text-sm font-medium mb-2 block">1. Enter Current Password</label>
+                                    <label className="text-white/70 text-sm font-medium mb-2 block">1. Enter current password</label>
                                     <input
                                         type="password"
                                         value={currentPassword}
                                         onChange={(e) => setCurrentPassword(e.target.value)}
                                         className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none focus:border-red-500/50"
-                                        placeholder="Current Password"
+                                        placeholder="Current password"
                                     />
                                 </div>
                                 <div>

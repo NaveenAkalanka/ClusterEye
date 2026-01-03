@@ -69,14 +69,16 @@ export default function Navbar({ user }) {
               <Link
                 to="/profile"
                 onClick={() => setShowMenu(false)}
-                className="block w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer"
+                className="flex items-center gap-3 w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer transition-colors"
               >
+                <User size={20} className="text-[#69639E]" weight="duotone" />
                 Profile
               </Link>
               <button
                 onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 rounded-lg cursor-pointer"
+                className="flex items-center gap-3 w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 rounded-lg cursor-pointer transition-colors"
               >
+                <SignOut size={20} weight="duotone" />
                 Logout
               </button>
             </div>
@@ -89,8 +91,8 @@ export default function Navbar({ user }) {
 
       {/* Mobile Sidebar */}
       {showSidebar && (
-        <div ref={sidebarRef} className="fixed inset-0 bg-black/80 z-[100] min-[1200px]:hidden">
-          <div className="w-64 h-full bg-stone-950 p-6 flex flex-col gap-6 shadow-2xl">
+        <div ref={sidebarRef} className="fixed inset-0 bg-black/80 z-[100] min-[1200px]:hidden backdrop-blur-sm animate-fadeIn">
+          <div className="w-64 h-full bg-[#0D100D] border-r border-white/10 p-6 flex flex-col gap-6 shadow-2xl animate-slideRight">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-zinc-300 rounded-full flex items-center justify-center text-black font-bold">
@@ -100,38 +102,25 @@ export default function Navbar({ user }) {
               </div>
               <button onClick={() => setShowSidebar(false)} className="text-white text-2xl cursor-pointer">✕</button>
             </div>
-            <div className="flex flex-col gap-6">
-              <Link to="/" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <Speedometer size={32} className="text-[#69639E]" /> Dashboard
-              </Link>
-              <Link to="/nodes" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <HardDrives size={32} className="text-[#69639E]" /> Nodes
-              </Link>
-              <Link to="/clusters" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <ShareNetwork size={32} className="text-[#69639E]" /> Clusters
-              </Link>
-              <Link to="/disks" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <Disc size={32} className="text-[#69639E]" /> Disks
-              </Link>
-              <Link to="/network" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <Network size={32} className="text-[#69639E]" /> Network
-              </Link>
-              <Link to="/docker" onClick={() => setShowSidebar(false)} className="text-white text-2xl flex items-center gap-4">
-                <ShippingContainer size={32} className="text-[#69639E]" /> Docker
-              </Link>
-              <div className="h-px bg-white/10 my-2"></div>
-              <Link
-                to="/profile"
-                onClick={() => setShowSidebar(false)}
-                className="text-white text-2xl flex items-center gap-4 text-left cursor-pointer"
-              >
-                <User size={32} className="text-[#69639E]" /> Profile
-              </Link>
+
+            <div className="flex flex-col gap-2">
+              <MobileNavItem to="/" label="Dashboard" icon={<Speedometer size={24} className="text-[#69639E]" />} isActive={isActive("/")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/nodes" label="Nodes" icon={<HardDrives size={24} className="text-[#69639E]" />} isActive={isActive("/nodes")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/clusters" label="Clusters" icon={<ShareNetwork size={24} className="text-[#69639E]" />} isActive={isActive("/clusters")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/disks" label="Disks" icon={<Disc size={24} className="text-[#69639E]" />} isActive={isActive("/disks")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/network" label="Network" icon={<Network size={24} className="text-[#69639E]" />} isActive={isActive("/network")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/docker" label="Docker" icon={<ShippingContainer size={24} className="text-[#69639E]" />} isActive={isActive("/docker")} onClick={() => setShowSidebar(false)} />
+
+              <div className="h-px bg-white/10 my-4"></div>
+
+              <MobileNavItem to="/profile" label="Profile" icon={<User size={24} className="text-[#69639E]" />} isActive={isActive("/profile")} onClick={() => setShowSidebar(false)} />
+
               <button
                 onClick={() => { setShowSidebar(false); handleLogout(); }}
-                className="text-red-400 text-2xl flex items-center gap-4 text-left cursor-pointer"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 font-medium hover:bg-white/5 transition-colors cursor-pointer w-full text-left"
               >
-                <SignOut size={32} className="text-red-400/60" /> Logout
+                <SignOut size={24} weight="duotone" />
+                Logout
               </button>
             </div>
           </div>
@@ -145,8 +134,26 @@ function NavItem({ label, to, icon, isActive }) {
   return (
     <Link
       to={to}
-      className={`flex items-center gap-3 px-6 py-2 rounded-[20px] transition-all duration-300
-        ${isActive ? "bg-white/[0.05] text-white" : "text-white/70 hover:text-white"}
+      className={`flex items-center gap-3 px-6 py-2 rounded-[20px] transition-all duration-300 border
+        ${isActive
+          ? "bg-white/[0.05] text-white border-white/5"
+          : "text-white/70 border-transparent hover:text-white hover:bg-white/[0.03] hover:border-white/10"
+        }
+      `}
+    >
+      {icon}
+      <span>{label}</span>
+    </Link>
+  );
+}
+
+function MobileNavItem({ label, to, icon, isActive, onClick }) {
+  return (
+    <Link
+      to={to}
+      onClick={onClick}
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300
+        ${isActive ? "bg-gradient-to-r from-[#69639E]/20 to-[#A8C9AD]/10 text-white border border-[#69639E]/30" : "text-white/70 hover:bg-white/5 hover:text-white"}
       `}
     >
       {icon}

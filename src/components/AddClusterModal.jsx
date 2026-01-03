@@ -31,7 +31,7 @@ export default function AddClusterModal({
 
                 <form onSubmit={handleCreate} className="space-y-5">
                     <div>
-                        <label className="block text-white/70 mb-2 text-xs font-medium">Cluster Name</label>
+                        <label className="block text-white/50 mb-2 text-xs font-bold tracking-wider">Cluster Name</label>
                         <input
                             type="text"
                             placeholder="e.g. Alpha Cluster"
@@ -43,7 +43,7 @@ export default function AddClusterModal({
                     </div>
 
                     <div>
-                        <label className="block text-white/70 mb-2 text-xs font-medium">IP Address</label>
+                        <label className="block text-white/50 mb-2 text-xs font-bold tracking-wider">IP Address</label>
                         <input
                             type="text"
                             placeholder="e.g. 192.168.1.1"
@@ -54,7 +54,7 @@ export default function AddClusterModal({
                     </div>
 
                     <div>
-                        <label className="block text-white/70 mb-2 text-xs font-medium">Subnet Mask</label>
+                        <label className="block text-white/50 mb-2 text-xs font-bold tracking-wider">Subnet Mask</label>
                         <input
                             type="text"
                             placeholder="e.g. 255.255.255.0"
@@ -65,7 +65,7 @@ export default function AddClusterModal({
                     </div>
 
                     <div>
-                        <label className="block text-white/70 mb-2 text-xs font-medium">Cluster Color</label>
+                        <label className="block text-white/50 mb-2 text-xs font-bold tracking-wider">Cluster Color</label>
                         <div className="w-full h-12 flex rounded-xl overflow-hidden border border-white/10 shadow-inner">
                             {[
                                 "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16", "#22C55E", "#10B981", "#14B8A6",

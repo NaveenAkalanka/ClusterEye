@@ -19,7 +19,9 @@ import {
   HardDrives,
   Database,
   CirclesThreePlus,
-  CaretCircleRight
+  CaretCircleRight,
+  CaretUp,
+  CaretDown
 } from "@phosphor-icons/react";
 
 import AddDiskModal from "../components/AddDiskModal";
@@ -55,6 +57,7 @@ export default function Disks() {
   const [filterCluster, setFilterCluster] = useState("");
   const [filterModel, setFilterModel] = useState("");
   const [filterRole, setFilterRole] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   /* ----------------------------- AUTH ----------------------------- */
   useEffect(() => {
@@ -175,8 +178,44 @@ export default function Disks() {
       res = res.filter(d => d.role === filterRole);
     }
 
+    if (sortConfig.key) {
+      res.sort((a, b) => {
+        let A = a[sortConfig.key];
+        let B = b[sortConfig.key];
+
+        // Handle numeric fields safely
+        if (["total", "used", "free", "nodes"].includes(sortConfig.key)) {
+          A = Number(A || 0);
+          B = Number(B || 0);
+        } else {
+          A = (A || "").toString().toLowerCase();
+          B = (B || "").toString().toLowerCase();
+        }
+
+        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
+        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
     return res;
-  }, [disks, search, filterCluster, filterModel, filterRole]);
+  }, [disks, search, filterCluster, filterModel, filterRole, sortConfig]);
+
+  function handleSort(key) {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setFilterCluster("");
+    setFilterModel("");
+    setFilterRole("");
+    setSortConfig({ key: null, direction: "asc" });
+  }
 
   const stats = useMemo(() => {
     const totalStorage = disks.reduce((acc, d) => acc + (d.total || 0), 0);
@@ -206,7 +245,7 @@ export default function Disks() {
             <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
             <input
               type="text"
-              placeholder="Search disks..."
+              placeholder="Search Disks..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
@@ -230,12 +269,7 @@ export default function Disks() {
             <Funnel size={18} />
           </button>
           <button
-            onClick={() => {
-              setSearch("");
-              setFilterCluster("");
-              setFilterModel("");
-              setFilterRole("");
-            }}
+            onClick={clearFilters}
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <XCircle size={18} />
@@ -244,9 +278,9 @@ export default function Disks() {
 
         {/* Stat Cards */}
         <div className="grid grid-cols-3 lg:grid-cols-1 gap-2 lg:gap-3 lg:flex-1">
-          <StatCard label="Total disks" value={stats.count} fill />
-          <StatCard label="Total storage" value={stats.storage} fill />
-          <StatCard label="Total free" value={stats.free} fill />
+          <StatCard label="Total Disks" value={stats.count} fill />
+          <StatCard label="Total Storage" value={stats.storage} fill />
+          <StatCard label="Total Free" value={stats.free} fill />
         </div>
       </aside>
 
@@ -262,16 +296,32 @@ export default function Disks() {
           ) : (
             <div className="space-y-2">
               {/* Header Row (Desktop) */}
-              <div className="hidden md:grid grid-cols-[1.5fr_1fr_1fr_1fr_0.5fr_1fr_1fr_1fr_2fr] gap-4 px-6 py-2 text-[11px] font-bold text-white/40 tracking-wider items-center">
-                <div>Disk Name</div>
-                <div>Model</div>
-                <div>Role</div>
-                <div>Cluster</div>
-                <div>Nodes</div>
-                <div>Total</div>
-                <div>Used</div>
-                <div>Free</div>
-                <div className="text-left">Usage</div>
+              <div className="hidden md:grid grid-cols-[1.5fr_1fr_1fr_1fr_0.5fr_1fr_1fr_1fr_2fr] gap-4 px-6 py-2 text-xs font-bold text-white/50 tracking-wider items-center select-none">
+                <div onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Disk Name {sortConfig.key === "disk" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("model")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Model {sortConfig.key === "model" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("role")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Role {sortConfig.key === "role" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Nodes {sortConfig.key === "nodes" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Total {sortConfig.key === "total" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Used {sortConfig.key === "used" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Free {sortConfig.key === "free" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div className="text-left cursor-default">Usage</div>
               </div>
 
               {/* Rows */}
@@ -329,7 +379,7 @@ export default function Disks() {
                           <HardDrives size={16} className="text-[#A8C9AD]" />
                         </div>
                         <div>
-                          <div className="font-bold text-base">{d.disk}</div>
+                          <div className="font-bold text-sm">{d.disk}</div>
                           <div className="text-[10px] text-white/50 flex gap-2">
                             <span>{d.model}</span>
                             <span>•</span>

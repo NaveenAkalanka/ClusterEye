@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { collection, query, where, orderBy, deleteDoc, doc, updateDoc, onSnapshot } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
-import { MagnifyingGlass, Plus, Funnel, XCircle, Trash, PencilSimple, Warning, CheckCircle, Cube, HardDrives, CaretCircleRight } from "@phosphor-icons/react";
+import { MagnifyingGlass, Plus, Funnel, XCircle, Trash, PencilSimple, Warning, CheckCircle, Cube, HardDrives, CaretCircleRight, CaretUp, CaretDown } from "@phosphor-icons/react";
 import AddContainerModal from "../components/AddContainerModal";
 import ContainerModal from "../components/ContainerModal";
 import FilterModal from "../components/FilterModal";
@@ -12,7 +12,7 @@ function StatCard({ label, value, icon: Icon, fullWidth }) {
     <div className={`w-full ${fullWidth ? "col-span-1" : ""} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl px-4 flex items-center justify-between shadow-md group hover:border-[#69639E]/50 transition-all h-12`}>
       <div className="flex items-center gap-3">
         {Icon && <Icon size={20} className="text-[#A8C9AD] opacity-50 group-hover:opacity-100 transition-opacity" weight="duotone" />}
-        <div className="text-white/70 font-bold text-xs uppercase tracking-wider">{label}</div>
+        <div className="text-white/70 font-bold text-xs tracking-wider">{label}</div>
       </div>
       <div className="text-white font-bold bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent text-xl">{value}</div>
     </div>
@@ -27,6 +27,7 @@ export default function Docker() {
   // Filtering
   const [showFilter, setShowFilter] = useState(false);
   const [filterNode, setFilterNode] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   const user = auth.currentUser;
 
@@ -74,19 +75,6 @@ export default function Docker() {
   const totalContainers = containers.length;
   const uniqueDockerServers = new Set(containers.map(c => c.nodeId)).size;
 
-  // Filter Logic
-  const filteredContainers = useMemo(() => {
-    const s = search.toLowerCase();
-    return containers.filter(c => {
-      const matchesSearch =
-        c.name.toLowerCase().includes(s) ||
-        (c.containerId && c.containerId.toLowerCase().includes(s)) ||
-        (c.port && c.port.toString().includes(s));
-      const matchesNode = filterNode ? c.nodeId === filterNode : true;
-      return matchesSearch && matchesNode;
-    });
-  }, [containers, search, filterNode]);
-
   // Helpers
   const getNodeName = (nodeId) => {
     const node = nodes.find(n => n.nodeId === nodeId || n.id === nodeId);
@@ -104,6 +92,71 @@ export default function Docker() {
     const node = nodes.find(n => n.nodeId === nodeId || n.id === nodeId);
     return node ? node.ipAddress : "—";
   };
+
+  // Filter Logic
+  // Filter Logic
+  const filteredContainers = useMemo(() => {
+    const s = search.toLowerCase();
+    let res = containers.filter(c => {
+      const matchesSearch =
+        c.name.toLowerCase().includes(s) ||
+        (c.containerId && c.containerId.toLowerCase().includes(s)) ||
+        (c.port && c.port.toString().includes(s));
+      const matchesNode = filterNode ? c.nodeId === filterNode : true;
+      return matchesSearch && matchesNode;
+    });
+
+    if (sortConfig.key) {
+      res.sort((a, b) => {
+        let A = a[sortConfig.key];
+        let B = b[sortConfig.key];
+
+        // Derived fields logic
+        if (sortConfig.key === "nodeId") {
+          A = getNodeName(A);
+          B = getNodeName(B);
+        }
+
+        if (sortConfig.key === "ip") {
+          // Sort by Node IP logic might be complex if we don't have it on the object
+          // We can look it up
+          A = getNodeIP(a.nodeId);
+          B = getNodeIP(b.nodeId);
+        }
+
+        // Handle numeric fields safely
+        if (["port"].includes(sortConfig.key)) {
+          A = Number(A || 0);
+          B = Number(B || 0);
+        } else {
+          A = (A || "").toString().toLowerCase();
+          B = (B || "").toString().toLowerCase();
+        }
+
+        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
+        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return res;
+  }, [containers, search, filterNode, sortConfig, nodes]); // Added nodes to dep array for lookup sorting
+
+  function handleSort(key) {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setFilterNode("");
+    setSortConfig({ key: null, direction: "asc" });
+  }
+
+
 
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0">
@@ -146,7 +199,7 @@ export default function Docker() {
               <Funnel size={18} weight={filterNode ? "fill" : "regular"} />
             </button>
             <button
-              onClick={() => { setFilterNode(""); setSearch(""); }}
+              onClick={clearFilters}
               className="w-12 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
             >
               <XCircle size={18} />
@@ -160,7 +213,7 @@ export default function Docker() {
             <StatCard label="Containers" value={totalContainers} icon={Cube} fullWidth />
           </div>
           <div className="w-full sm:w-48">
-            <StatCard label="Docker Servers" value={uniqueDockerServers} icon={HardDrives} fullWidth />
+            <StatCard label="Docker servers" value={uniqueDockerServers} icon={HardDrives} fullWidth />
           </div>
         </div>
 
@@ -170,12 +223,22 @@ export default function Docker() {
       <section className="flex-1 bg-[#0D100D] rounded-[20px] p-4 md:p-6 md:h-full md:overflow-y-auto custom-scrollbar h-fit">
 
         {/* Table Headers (Hidden on mobile) */}
-        <div className="hidden md:grid grid-cols-5 text-white/50 text-sm font-semibold mb-4 px-6">
-          <span>ID</span>
-          <span>Name</span>
-          <span>Port</span>
-          <span>Server Name</span>
-          <span>Server IP</span>
+        <div className="hidden md:grid grid-cols-5 text-white/50 text-xs font-bold tracking-wider mb-4 px-6 select-none">
+          <div onClick={() => handleSort("containerId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            ID {sortConfig.key === "containerId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("name")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Name {sortConfig.key === "name" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("port")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Port {sortConfig.key === "port" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Server Name {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("ip")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Server IP {sortConfig.key === "ip" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
         </div>
 
         {/* List */}
@@ -257,11 +320,11 @@ export default function Docker() {
                   {/* Row 3: Stats Grid (Compact) */}
                   <div className="grid grid-cols-2 gap-2 mt-1 pt-2 border-t border-white/5">
                     <div>
-                      <div className="text-[9px] text-white/30 uppercase font-bold">Port</div>
+                      <div className="text-[9px] text-white/30 font-bold">Port</div>
                       <div className="text-xs text-[#A8C9AD]">:{c.port}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 uppercase font-bold">IP</div>
+                      <div className="text-[9px] text-white/30 font-bold">IP</div>
                       <div className="text-xs text-white/80">{getNodeIP(c.nodeId)}</div>
                     </div>
                   </div>
@@ -296,7 +359,7 @@ export default function Docker() {
           <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
             <h2 className="text-xl font-bold text-white mb-6">Filter Containers</h2>
 
-            <label className="text-xs font-bold text-white/40 uppercase tracking-wider mb-2 block">By Node</label>
+            <label className="text-xs font-bold text-white/40 tracking-wider mb-2 block">By Node</label>
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setFilterNode("")}

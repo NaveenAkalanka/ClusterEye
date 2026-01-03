@@ -164,7 +164,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
 
                         {/* Container ID */}
                         <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Container ID</label>
+                            <label className="text-xs font-bold text-white/40 tracking-wider">Container ID</label>
                             <input
                                 type="text"
                                 disabled={!isEdit}
@@ -176,7 +176,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
 
                         {/* Name */}
                         <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Container Name</label>
+                            <label className="text-xs font-bold text-white/40 tracking-wider">Container Name</label>
                             <input
                                 type="text"
                                 disabled={!isEdit}
@@ -189,7 +189,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                         <div className="grid grid-cols-2 gap-4">
                             {/* Node */}
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Host Node</label>
+                                <label className="text-xs font-bold text-white/40 tracking-wider">Host Node</label>
                                 <CustomSelect
                                     value={nodeId}
                                     onChange={setNodeId}
@@ -201,7 +201,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
 
                             {/* Port */}
                             <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Port</label>
+                                <label className="text-xs font-bold text-white/40 tracking-wider">Port</label>
                                 <NumberStepper
                                     value={port}
                                     onChange={setPort}
@@ -215,7 +215,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
 
                         {/* Link */}
                         <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Container Link</label>
+                            <label className="text-xs font-bold text-white/40 tracking-wider">Container Link</label>
                             <div className="relative">
                                 <input
                                     type="text"
@@ -239,7 +239,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
 
                         {/* Password */}
                         <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-bold text-white/40 uppercase tracking-wider">Password</label>
+                            <label className="text-xs font-bold text-white/40 tracking-wider">Password</label>
                             <div className="relative">
                                 <input
                                     type={showPassword ? "text" : "password"}

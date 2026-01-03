@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../firebaseConfig";
-import { MagnifyingGlass, Globe, Circuitry, Warning, Funnel, XCircle } from "@phosphor-icons/react";
+import { MagnifyingGlass, Globe, Circuitry, Warning, Funnel, XCircle, CaretUp, CaretDown } from "@phosphor-icons/react";
 import FilterModal from "../components/FilterModal";
 import CustomSelect from "../components/CustomSelect";
 
@@ -17,6 +17,7 @@ export default function Network() {
   const [showFilter, setShowFilter] = useState(false);
   const [filterType, setFilterType] = useState("");
   const [filterCluster, setFilterCluster] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   // Matrix State
   const [matrixCluster, setMatrixCluster] = useState("");
@@ -90,13 +91,45 @@ export default function Network() {
       cResult = cResult.filter(c => c.cluster === filterCluster);
     }
 
+    // SORTING LOGIC
+    if (sortConfig.key) {
+      const sortFn = (a, b) => {
+        let A = a[sortConfig.key];
+        let B = b[sortConfig.key];
+
+        // Derived/Specific Sort Handlers
+        if (sortConfig.key === "nodeId") {
+          // Might need specific handling if numeric or string
+        }
+
+        A = (A || "").toString().toLowerCase();
+        B = (B || "").toString().toLowerCase();
+
+        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
+        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      };
+
+      nResult.sort(sortFn);
+      cResult.sort(sortFn);
+    }
+
     return { nodes: nResult, clusters: cResult };
-  }, [nodes, clusters, search, filterType, filterCluster]);
+  }, [nodes, clusters, search, filterType, filterCluster, sortConfig]);
+
+  function handleSort(key) {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  }
 
   function clearFilters() {
     setSearch("");
     setFilterType("");
     setFilterCluster("");
+    setSortConfig({ key: null, direction: "asc" });
   }
 
   // Extract Subnets for selected Cluster (Visual Grouping by /24)
@@ -151,7 +184,7 @@ export default function Network() {
             <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
             <input
               type="text"
-              placeholder="Search network..."
+              placeholder="Search Network..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
@@ -177,6 +210,22 @@ export default function Network() {
           </button>
         </div>
 
+        {/* VIEW TABS (Moved from Main Content) */}
+        <div className="grid grid-cols-2 gap-1 p-1 bg-[#161D22] rounded-xl w-full border border-white/5 shrink-0">
+          <button
+            onClick={() => setActiveTab("nodes")}
+            className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-center ${activeTab === "nodes" ? "bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/5"}`}
+          >
+            Nodes
+          </button>
+          <button
+            onClick={() => setActiveTab("clusters")}
+            className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex justify-center ${activeTab === "clusters" ? "bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/5"}`}
+          >
+            Clusters
+          </button>
+        </div>
+
         {/* Stats - Compact for Sidebar */}
         <div className="grid grid-cols-2 gap-2">
           <StatCard label="Nodes" value={(nodes || []).length} icon={Circuitry} compact />
@@ -186,7 +235,7 @@ export default function Network() {
         {/* NETWORK MATRIX */}
         <div className="flex flex-col gap-3 mt-auto border-t border-white/5 pt-4">
           <div className="flex justify-between items-center">
-            <h3 className="text-white/50 font-bold text-xs uppercase tracking-wider">Subnet Map</h3>
+            <h3 className="text-white/50 font-bold text-xs tracking-wider">Subnet Map</h3>
             <div className="text-[10px] text-white/30 font-mono">/24</div>
           </div>
 
@@ -232,8 +281,8 @@ export default function Network() {
             </div>
           </div>
           <div className="text-[10px] text-white/30 text-center flex justify-center gap-4">
-            <span className="text-[#00FF94] drop-shadow-[0_0_3px_#00FF94]">{matrixActiveIndices.length} ACTIVE</span>
-            <span>{254 - matrixActiveIndices.length} FREE</span>
+            <span className="text-[#00FF94] drop-shadow-[0_0_3px_#00FF94]">{matrixActiveIndices.length} Active</span>
+            <span>{254 - matrixActiveIndices.length} Free</span>
           </div>
         </div>
       </aside>
@@ -241,30 +290,28 @@ export default function Network() {
       {/* CONTENT */}
       <section className="flex-1 bg-[#0D100D] rounded-3xl border border-white/5 flex flex-col overflow-hidden relative shadow-2xl p-6 gap-6 overflow-y-auto custom-scrollbar">
 
-        {/* TABS */}
-        <div className="flex gap-1 p-1 bg-[#161D22] rounded-xl w-fit border border-white/5">
-          <button
-            onClick={() => setActiveTab("nodes")}
-            className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "nodes" ? "bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/5"}`}
-          >
-            Nodes Network
-          </button>
-          <button
-            onClick={() => setActiveTab("clusters")}
-            className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeTab === "clusters" ? "bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white shadow-lg" : "text-white/50 hover:text-white hover:bg-white/5"}`}
-          >
-            Clusters
-          </button>
-        </div>
+
 
         {/* TABLE HEADERS */}
-        <div className="grid grid-cols-[1.5fr_1fr_1.5fr] md:grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 px-4 text-[10px] font-bold text-white/40 uppercase tracking-wider mb-[-10px]">
-          <div className="hidden md:block">Node ID</div>
-          <div>Name</div>
-          <div className="hidden md:block">Type</div>
-          <div className="hidden md:block">Cluster</div>
-          <div className="hidden md:block">Subnet Mask</div>
-          <div className="text-right md:text-left">IP Address</div>
+        <div className="grid grid-cols-[1.5fr_1fr_1.5fr] md:grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 px-4 text-xs font-bold text-white/50 tracking-wider mb-[-10px] select-none">
+          <div onClick={() => handleSort("nodeId")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+            Node ID {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort(activeTab === "nodes" ? "node" : "cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+            Name {sortConfig.key === (activeTab === "nodes" ? "node" : "cluster") && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("type")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+            Type {sortConfig.key === "type" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("cluster")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+            Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("subnetMask")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+            Subnet Mask {sortConfig.key === "subnetMask" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
+          <div onClick={() => handleSort("ipAddress")} className="text-right md:text-left cursor-pointer hover:text-white flex items-center gap-1 group justify-end md:justify-start">
+            IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+          </div>
         </div>
 
         {/* TABLE CONTENT */}
@@ -281,6 +328,7 @@ export default function Network() {
                   ip={n.ipAddress}
                   cluster={n.cluster}
                   clusterColor={(clusters || []).find(c => c.cluster === n.cluster)?.color}
+                  subnetMask={(clusters || []).find(c => c.cluster === n.cluster)?.subnetMask}
                   validation={validation}
                 />
               ))}
@@ -332,7 +380,7 @@ function NetworkRow({ name, nodeId, type, ip, subnetMask, cluster, clusterColor,
       {/* DESKTOP ROW */}
       <div className="hidden md:grid grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 p-4 items-center">
         {/* Node ID */}
-        <div className="text-xs font-mono text-white/40 truncate">{nodeId || "—"}</div>
+        <div className="text-sm text-white/60 truncate">{nodeId || "—"}</div>
         {/* Name */}
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: clusterColor || "#69639E" }}></div>

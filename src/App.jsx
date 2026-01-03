@@ -31,7 +31,7 @@ export default function App() {
     <Router>
       {!user ? (
         <Routes>
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/signup" element={!user ? <Signup /> : <Navigate to="/" />} />
           <Route path="/" element={<Login onLogin={setUser} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

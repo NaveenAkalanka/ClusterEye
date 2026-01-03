@@ -16,7 +16,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../firebaseConfig";
-import { MagnifyingGlass, Funnel, XCircle, Plus, CaretCircleRight, Globe, HardDrives, Circuitry } from "@phosphor-icons/react";
+import { MagnifyingGlass, Funnel, XCircle, Plus, CaretCircleRight, Globe, HardDrives, Circuitry, CaretUp, CaretDown } from "@phosphor-icons/react";
 import AddClusterModal from "../components/AddClusterModal";
 import ClusterModal from "../components/ClusterModal";
 import { isValidSubnetMask } from "../utils/network";
@@ -45,6 +45,7 @@ export default function Clusters() {
   const [viewClusterId, setViewClusterId] = useState(null);
 
   const [search, setSearch] = useState("");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   const recomputeTimer = useRef(null);
 
@@ -171,7 +172,7 @@ export default function Clusters() {
 
   /* ------------------------------ Filter/Stats ------------------------------ */
   const filteredClusters = useMemo(() => {
-    let res = clusters;
+    let res = [...clusters];
     if (search.trim()) {
       const q = search.toLowerCase();
       res = res.filter(
@@ -180,8 +181,42 @@ export default function Clusters() {
           (c.ipAddress || "").includes(q)
       );
     }
+
+    if (sortConfig.key) {
+      res.sort((a, b) => {
+        let A = a[sortConfig.key];
+        let B = b[sortConfig.key];
+
+        // Handle numeric fields safely
+        if (["total", "used", "free", "nodes", "disks"].includes(sortConfig.key)) {
+          A = Number(A || 0);
+          B = Number(B || 0);
+        } else {
+          A = (A || "").toString().toLowerCase();
+          B = (B || "").toString().toLowerCase();
+        }
+
+        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
+        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
     return res;
-  }, [clusters, search]);
+  }, [clusters, search, sortConfig]);
+
+  function handleSort(key) {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: "asc" }
+    );
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setSortConfig({ key: null, direction: "asc" });
+  }
 
   const stats = useMemo(() => {
     const totalStorage = clusters.reduce((acc, c) => acc + (c.total || 0), 0);
@@ -208,7 +243,7 @@ export default function Clusters() {
             <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
             <input
               type="text"
-              placeholder="Search clusters..."
+              placeholder="Search Clusters..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
@@ -226,7 +261,7 @@ export default function Clusters() {
             <span>Add Cluster</span>
           </button>
           <button
-            onClick={() => setSearch("")}
+            onClick={clearFilters}
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <XCircle size={18} />
@@ -235,9 +270,9 @@ export default function Clusters() {
 
         {/* Stat Cards */}
         <div className="grid grid-cols-3 lg:grid-cols-1 gap-2 lg:gap-3 lg:flex-1">
-          <StatCard label="Total clusters" value={stats.count} icon={Globe} fill />
-          <StatCard label="Total storage" value={stats.storage} icon={HardDrives} fill />
-          <StatCard label="Total nodes" value={stats.nodes} icon={Circuitry} fill />
+          <StatCard label="Total Clusters" value={stats.count} icon={Globe} fill />
+          <StatCard label="Total Storage" value={stats.storage} icon={HardDrives} fill />
+          <StatCard label="Total Nodes" value={stats.nodes} icon={Circuitry} fill />
         </div>
 
       </aside>
@@ -254,17 +289,33 @@ export default function Clusters() {
           ) : (
             <div className="space-y-2">
               {/* Header Row (Desktop) */}
-              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-[11px] font-bold text-white/40 tracking-wider items-center">
+              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-xs font-bold text-white/50 tracking-wider items-center select-none">
                 <div className="w-2"></div> {/* Color Dot Spacer */}
-                <div>Cluster Name</div>
-                <div>Ip Address</div>
-                <div>Subnet Mask</div>
-                <div>Disks</div>
-                <div>Total</div>
-                <div>Used</div>
-                <div>Free</div>
-                <div>Nodes</div>
-                <div className="text-left">Usage</div>
+                <div onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Cluster Name {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("ipAddress")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("subnetMask")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Subnet Mask {sortConfig.key === "subnetMask" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("disks")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Disks {sortConfig.key === "disks" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Total {sortConfig.key === "total" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Used {sortConfig.key === "used" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Free {sortConfig.key === "free" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                  Nodes {sortConfig.key === "nodes" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
+                </div>
+                <div className="text-left cursor-default">Usage</div>
               </div>
 
               {/* Rows */}
@@ -318,7 +369,7 @@ export default function Clusters() {
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
-                        <span className="font-bold text-lg">{c.cluster}</span>
+                        <span className="font-bold text-sm">{c.cluster}</span>
                       </div>
                       <CaretCircleRight
                         onClick={() => setViewClusterId(c.id)}
@@ -408,7 +459,7 @@ function StatCard({ label, value, fill }) {
   return (
     <div className={`w-full ${fill ? "flex-1" : "h-24"} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between shadow-md group hover:border-[#69639E]/50 transition-all`}>
       <div className={`text-white/70 font-medium tracking-tight ${fill ? "text-sm md:text-xl" : "text-sm"}`}>{label}</div>
-      <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-2xl md:text-7xl" : "text-3xl"}`}>{value}</div>
+      <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-3xl md:text-7xl" : "text-3xl"}`}>{value}</div>
     </div>
   );
 }

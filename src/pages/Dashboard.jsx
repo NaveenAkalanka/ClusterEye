@@ -155,16 +155,16 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col justify-center gap-6 min-h-0 overflow-hidden">
             <div className="flex flex-col shrink-0">
               <span className="text-5xl font-bold text-white leading-none">{nodeStats.total}</span>
-              <span className="text-white/40 text-sm uppercase tracking-wider">Total Nodes</span>
+              <span className="text-white/40 text-sm tracking-wider">Total Nodes</span>
             </div>
             <div className="grid grid-cols-2 gap-3 shrink-0">
               <div className="bg-[#161D22]/50 p-3 rounded-xl border border-white/5">
                 <span className="block text-2xl font-bold text-white leading-none">{nodeStats.vms}</span>
-                <span className="text-white/40 text-[10px] uppercase">Total VMs</span>
+                <span className="text-white/40 text-[10px]">Total VMs</span>
               </div>
               <div className="bg-[#161D22]/50 p-3 rounded-xl border border-white/5">
                 <span className="block text-2xl font-bold text-white leading-none">{nodeStats.lxc}</span>
-                <span className="text-white/40 text-[10px] uppercase">Total LXC</span>
+                <span className="text-white/40 text-[10px]">Total LXCs</span>
               </div>
             </div>
           </div>
@@ -194,7 +194,7 @@ export default function Dashboard() {
               {/* LEFT: Total Count */}
               <div className="flex flex-col items-center justify-center shrink-0 w-1/3 border-r border-white/5 pr-4 h-full">
                 <span className="text-6xl font-bold text-white leading-none">{data.clusters.length}</span>
-                <span className="text-white/40 text-[10px] uppercase tracking-wider mt-2 text-center">Total Clusters</span>
+                <span className="text-white/40 text-[10px] tracking-wider mt-2 text-center">Total Clusters</span>
               </div>
 
               {/* RIGHT: List */}
@@ -237,11 +237,11 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 gap-3 shrink-0">
               <div className="bg-[#161D22]/50 p-3 rounded-xl border border-white/5">
                 <span className="block text-2xl font-bold text-white leading-none">{diskStats.storage}</span>
-                <span className="text-white/40 text-[10px] uppercase">Storage</span>
+                <span className="text-white/40 text-[10px]">Storage</span>
               </div>
               <div className="bg-[#161D22]/50 p-3 rounded-xl border border-white/5">
                 <span className="block text-2xl font-bold text-[#A8C9AD] leading-none">{diskStats.free}</span>
-                <span className="text-white/40 text-[10px] uppercase">Free</span>
+                <span className="text-white/40 text-[10px]">Free</span>
               </div>
             </div>
             {/* Progress Bar */}
@@ -255,9 +255,9 @@ export default function Dashboard() {
             <div className="px-2 shrink-0 flex justify-between items-center">
               <div>
                 <span className="text-4xl font-bold text-white">{diskStats.total}</span>
-                <span className="text-white/40 text-xs ml-2 uppercase tracking-wider">Physical Disks</span>
+                <span className="text-white/40 text-xs ml-2 tracking-wider">Physical Disks</span>
               </div>
-              <span className="text-white/40 text-xs">{diskStats.percent}% Used</span>
+              <span className="text-white/40 text-xs">{diskStats.percent}% used</span>
             </div>
           </div>
 
@@ -273,7 +273,7 @@ export default function Dashboard() {
 
 
         {/* 4. NETWORK SECTION (3/6) */}
-        <div className="lg:col-span-3 bg-[#0D100D] border border-white/5 rounded-3xl p-6 flex flex-col justify-between relative group min-h-[300px] lg:min-h-0 animate-fadeInUp opacity-0" style={{ animationDelay: '300ms' }}>
+        <div className="lg:col-span-3 bg-[#0D100D] border border-white/5 rounded-3xl p-6 flex flex-col justify-between relative group min-h-[450px] lg:min-h-0 animate-fadeInUp opacity-0" style={{ animationDelay: '300ms' }}>
           {/* Header */}
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-2 shrink-0 relative z-30 gap-4">
             <div className="flex items-center gap-3 w-full md:w-auto">
@@ -285,7 +285,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 px-3 py-1 bg-[#161D22] border border-white/5 rounded-lg shrink-0">
                 <Circuitry size={16} className="text-[#00FF94]" />
                 <span className="text-white text-xs font-bold">{data.clusters.filter(c => c.ipAddress).length}</span>
-                <span className="text-white/40 text-[10px] uppercase">Gateways</span>
+                <span className="text-white/40 text-[10px]">Gateways</span>
               </div>
 
               {data.clusters.length > 0 && (
@@ -318,7 +318,7 @@ export default function Dashboard() {
           {/* Subnet Map Visual */}
           <div className="flex-1 flex flex-col justify-center min-h-0 overflow-hidden">
             <div className="bg-[#161D22]/40 rounded-xl p-3 border border-white/5 shadow-inner h-full flex flex-col">
-              <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] grid-rows-[repeat(16,minmax(0,1fr))] gap-[2px] w-full h-full">
+              <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] grid-rows-[repeat(16,minmax(0,1fr))] gap-1 w-full h-full">
                 {Array.from({ length: 254 }).map((_, i) => {
                   const index = i + 1;
                   const isActive = matrixActiveIndices.includes(index);
@@ -359,7 +359,7 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col md:flex-row items-center justify-center gap-10 min-h-0">
             <div className="flex flex-col items-center">
               <span className="text-6xl font-bold text-white">{containerStats.total}</span>
-              <span className="text-white/40 text-sm uppercase tracking-wider mt-2">Total Containers</span>
+              <span className="text-white/40 text-sm tracking-wider mt-2">Total Containers</span>
             </div>
             <div className="hidden md:block w-[1px] h-20 bg-white/10"></div>
             <div className="flex flex-col items-center">
@@ -367,7 +367,7 @@ export default function Dashboard() {
                 <Monitor size={32} className="text-orange-400 mb-2" weight="duotone" />
                 <span className="text-6xl font-bold text-white">{containerStats.servers}</span>
               </div>
-              <span className="text-white/40 text-sm uppercase tracking-wider mt-2">Docker Servers</span>
+              <span className="text-white/40 text-sm tracking-wider mt-2">Docker Servers</span>
             </div>
           </div>
 
