@@ -1,8 +1,9 @@
 <div align="center">
   <img src="public/ClusterEye.svg" alt="ClusterEye Logo" width="200" />
+
+  # ClusterEye
 </div>
 
-# ClusterEye
 
 > **Advanced Cluster Monitoring & Management Dashboard**
 
