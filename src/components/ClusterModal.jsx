@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { XCircle, Warning, Eye, EyeSlash } from "@phosphor-icons/react";
-import { doc, updateDoc, deleteDoc, writeBatch, collection, query, where, getDocs, getDoc, serverTimestamp } from "firebase/firestore";
+import { useState } from "react";
+import { XCircle, Warning } from "@phosphor-icons/react";
+import { doc, deleteDoc, writeBatch, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { isValidSubnetMask } from "../utils/network";
+import { isValidSubnetMask, isIpInSubnet } from "../utils/network";
+import useDialogFocus from "./useDialogFocus";
 
 export default function ClusterModal({ cluster, onClose, uid, allClusters = [], allNodes = [], disks = [] }) {
     // Local state for editing
@@ -19,6 +20,11 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
     // Delete state
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(
+        () => confirmDiscard ? setConfirmDiscard(false) : handleCloseRequest(),
+        true,
+        confirmDiscard
+    );
 
     // Check dirty
     const isDirty = localName !== cluster.cluster || localIp !== (cluster.ipAddress || "") || localSubnet !== (cluster.subnetMask || "255.255.255.0") || localColor !== (cluster.color || "#69639E");
@@ -53,6 +59,23 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
 
         if (ipExists) return setError("IP address already in use.");
 
+        // If IP or subnet changed, every child node IP must still fit the new subnet
+        const ipChanged = localIp !== (cluster.ipAddress || "");
+        const subnetChanged = localSubnet !== (cluster.subnetMask || "255.255.255.0");
+        if (ipChanged || subnetChanged) {
+            const childNodes = allNodes.filter(n => n.clusterId ? n.clusterId === cluster.id : n.cluster === cluster.cluster);
+            const outOfSubnet = childNodes.filter(
+                n => n.ipAddress && !isIpInSubnet(n.ipAddress, localIp, localSubnet)
+            );
+            if (outOfSubnet.length > 0) {
+                const names = outOfSubnet.slice(0, 3).map(n => n.node).join(", ");
+                const more = outOfSubnet.length > 3 ? ` (+${outOfSubnet.length - 3} more)` : "";
+                return setError(
+                    `${outOfSubnet.length} node(s) would fall outside the new subnet: ${names}${more}. Re-IP them first.`
+                );
+            }
+        }
+
         setSaving(true);
         try {
             // Validate duplicates via query needed here theoretically, skipping for brevity as main logic usually handles unique constraints, 
@@ -74,13 +97,13 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                 const qNodes = query(collection(db, "nodes"), where("userId", "==", uid), where("cluster", "==", cluster.cluster));
                 const snapNodes = await getDocs(qNodes);
                 snapNodes.forEach(d => {
-                    batch.update(doc(db, "nodes", d.id), { cluster: localName.trim() });
+                    batch.update(doc(db, "nodes", d.id), { cluster: localName.trim(), clusterId: cluster.id });
                 });
 
                 const qDisks = query(collection(db, "disks"), where("userId", "==", uid), where("cluster", "==", cluster.cluster));
                 const snapDisks = await getDocs(qDisks);
                 snapDisks.forEach(d => {
-                    batch.update(doc(db, "disks", d.id), { cluster: localName.trim() });
+                    batch.update(doc(db, "disks", d.id), { cluster: localName.trim(), clusterId: cluster.id });
                 });
             }
 
@@ -101,11 +124,11 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
         }
 
         // CHECK DEPENDENCIES
-        const hasNodes = allNodes.some(n => n.cluster === cluster.cluster);
+        const hasNodes = allNodes.some(n => n.clusterId ? n.clusterId === cluster.id : n.cluster === cluster.cluster);
         if (hasNodes) {
             return setError("Cannot delete: Cluster has associated nodes. Delete nodes first.");
         }
-        const hasDisks = disks.some(d => d.cluster === cluster.cluster);
+        const hasDisks = disks.some(d => d.clusterId ? d.clusterId === cluster.id : d.cluster === cluster.cluster);
         if (hasDisks) {
             return setError("Cannot delete: Cluster has associated disks. Delete disks first.");
         }
@@ -126,7 +149,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
 
     if (confirmDiscard) {
         return (
-            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+            <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Discard cluster changes" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
                 <div className="bg-[#161D22] border border-white/10 rounded-2xl p-6 max-w-sm text-center shadow-2xl">
                     <h3 className="text-white font-semibold text-lg mb-2">Unsaved Changes</h3>
                     <p className="text-white/60 text-sm mb-6">You have unsaved edits. Are you sure you want to discard them?</p>
@@ -150,7 +173,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
     }
 
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Cluster ${cluster.cluster}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
             <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-4 md:p-6 w-full max-w-lg shadow-2xl">
 
                 {/* Header */}
@@ -170,7 +193,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                 {/* Content */}
                 {!confirmDelete ? (
                     <div className="space-y-5">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <div className="text-white/70 mb-2 text-xs font-medium">Cluster Name</div>
                                 {editMode ? (
@@ -214,19 +237,21 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                         <div>
                             <div className="text-white/70 mb-2 text-xs font-medium">Cluster Color</div>
                             {editMode ? (
-                                <div className="w-full h-12 flex rounded-xl overflow-hidden border border-white/10 shadow-inner">
+                                <div className="grid grid-cols-5 gap-2" role="group" aria-label="Cluster color">
                                     {[
                                         "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16", "#22C55E", "#10B981", "#14B8A6",
                                         "#06B6D4", "#0EA5E9", "#3B82F6", "#6366F1", "#8B5CF6", "#A855F7", "#D946EF", "#EC4899",
                                         "#F43F5E", "#64748B", "#78716C", "#69639E"
                                     ].map((color) => (
-                                        <div
+                                        <button type="button"
                                             key={color}
                                             onClick={() => setLocalColor(color)}
-                                            className={`flex-1 h-full cursor-pointer transition-all hover:brightness-110 active:brightness-90 ${localColor === color ? "ring-2 ring-white z-10 relative shadow-lg scale-110" : ""}`}
+                                            aria-label={`Select color ${color}`}
+                                            aria-pressed={localColor === color}
+                                            className={`h-9 rounded-md cursor-pointer transition-all hover:brightness-110 active:brightness-90 ${localColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-[#0D100D]" : ""}`}
                                             style={{ backgroundColor: color }}
                                             title={color}
-                                        ></div>
+                                        />
                                     ))}
                                 </div>
                             ) : (
@@ -241,15 +266,15 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                         {!editMode && (
                             <div className="grid grid-cols-3 gap-3">
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Nodes</div>
+                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Nodes</div>
                                     <div className="text-white text-xl font-bold">{cluster.nodes || 0}</div>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Disks</div>
+                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Disks</div>
                                     <div className="text-white text-xl font-bold">{cluster.disks || 0}</div>
                                 </div>
                                 <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-[10px] font-bold tracking-wider mb-1">Storage</div>
+                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Storage</div>
                                     <div className="text-white text-xl font-bold">{(cluster.total / 1000000000).toFixed(0)} GB</div>
                                 </div>
                             </div>
@@ -302,7 +327,7 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
                         <Warning size={48} className="text-red-500 mx-auto opacity-80" weight="fill" />
                         <h3 className="text-white font-bold text-lg">Delete Cluster?</h3>
                         <p className="text-white/60 text-sm max-w-xs mx-auto">
-                            This will permanetly delete the cluster <b>{cluster.cluster}</b>. This action cannot be undone. Ensure it is empty first.
+                            This will permanently delete the cluster <b>{cluster.cluster}</b>. This action cannot be undone. Ensure it is empty first.
                         </p>
 
                         <input

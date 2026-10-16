@@ -1,10 +1,13 @@
-import { useState, useMemo, useEffect } from "react";
-import { collection, query, where, orderBy, deleteDoc, doc, updateDoc, onSnapshot } from "firebase/firestore";
-import { db, auth } from "../firebaseConfig";
-import { MagnifyingGlass, Plus, Funnel, XCircle, Trash, PencilSimple, Warning, CheckCircle, Cube, HardDrives, CaretCircleRight, CaretUp, CaretDown } from "@phosphor-icons/react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { db } from "../firebaseConfig";
+import { MagnifyingGlass, Plus, Funnel, XCircle, Cube, HardDrives, CaretCircleRight, CaretUp, CaretDown } from "@phosphor-icons/react";
 import AddContainerModal from "../components/AddContainerModal";
 import ContainerModal from "../components/ContainerModal";
-import FilterModal from "../components/FilterModal";
+import LoadError from "../components/LoadError";
+import LoadingState from "../components/LoadingState";
+import { Link } from "react-router-dom";
+import useDialogFocus from "../components/useDialogFocus";
 
 // Reusing Components from Theme (Matching Nodes.jsx)
 function StatCard({ label, value, icon: Icon, fullWidth }) {
@@ -19,7 +22,7 @@ function StatCard({ label, value, icon: Icon, fullWidth }) {
   );
 }
 
-export default function Docker() {
+export default function Docker({ user }) {
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [viewContainer, setViewContainer] = useState(null);
@@ -29,17 +32,21 @@ export default function Docker() {
   const [filterNode, setFilterNode] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
-  const user = auth.currentUser;
-
   // Data Fetching
   const [containers, setContainers] = useState([]);
   const [nodes, setNodes] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [loadingContainers, setLoadingContainers] = useState(true);
+  const [loadedNodes, setLoadedNodes] = useState(false);
+  const [loadedClusters, setLoadedClusters] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   // Fetch Containers
   useEffect(() => {
     if (!user) return;
+    setLoadError(false);
+    setLoadingContainers(true);
     const q = query(collection(db, "containers"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -47,39 +54,43 @@ export default function Docker() {
       data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
       setContainers(data);
       setLoadingContainers(false);
-    });
+    }, () => { setLoadError(true); setLoadingContainers(false); });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, retryKey]);
 
   // Fetch Nodes
   useEffect(() => {
     if (!user) return;
+    setLoadedNodes(false);
     const q = query(collection(db, "nodes"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setNodes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+      setLoadedNodes(true);
+    }, () => setLoadError(true));
     return () => unsubscribe();
-  }, [user]);
+  }, [user, retryKey]);
 
   // Fetch Clusters
   useEffect(() => {
     if (!user) return;
+    setLoadedClusters(false);
     const q = query(collection(db, "clusters"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setClusters(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+      setLoadedClusters(true);
+    }, () => setLoadError(true));
     return () => unsubscribe();
-  }, [user]);
+  }, [user, retryKey]);
 
   // Derived Stats
   const totalContainers = containers.length;
   const uniqueDockerServers = new Set(containers.map(c => c.nodeId)).size;
 
   // Helpers
-  const getNodeName = (nodeId) => {
+  const getNodeName = useCallback((nodeId) => {
     const node = nodes.find(n => n.nodeId === nodeId || n.id === nodeId);
     return node ? node.node : "Unknown Node";
-  };
+  }, [nodes]);
 
   const getClusterColor = (nodeId) => {
     const node = nodes.find(n => n.nodeId === nodeId || n.id === nodeId);
@@ -88,10 +99,10 @@ export default function Docker() {
     return cluster ? cluster.color : "#69639E";
   };
 
-  const getNodeIP = (nodeId) => {
+  const getNodeIP = useCallback((nodeId) => {
     const node = nodes.find(n => n.nodeId === nodeId || n.id === nodeId);
     return node ? node.ipAddress : "—";
-  };
+  }, [nodes]);
 
   // Filter Logic
   // Filter Logic
@@ -99,8 +110,8 @@ export default function Docker() {
     const s = search.toLowerCase();
     let res = containers.filter(c => {
       const matchesSearch =
-        c.name.toLowerCase().includes(s) ||
-        (c.containerId && c.containerId.toLowerCase().includes(s)) ||
+        (c.name || "").toLowerCase().includes(s) ||
+        (c.containerId || "").toLowerCase().includes(s) ||
         (c.port && c.port.toString().includes(s));
       const matchesNode = filterNode ? c.nodeId === filterNode : true;
       return matchesSearch && matchesNode;
@@ -140,7 +151,7 @@ export default function Docker() {
     }
 
     return res;
-  }, [containers, search, filterNode, sortConfig, nodes]); // Added nodes to dep array for lookup sorting
+  }, [containers, search, filterNode, sortConfig, getNodeName, getNodeIP]);
 
   function handleSort(key) {
     setSortConfig((prev) =>
@@ -156,12 +167,13 @@ export default function Docker() {
     setSortConfig({ key: null, direction: "asc" });
   }
 
+  if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
+
 
 
   return (
     <div className="flex-1 flex flex-col gap-6 min-h-0">
 
-      {/* TOP CONTROL BODY */}
       {/* TOP CONTROL BODY */}
       <div className="w-full bg-[#0D100D] rounded-3xl p-6 border border-white/5 shrink-0 flex flex-col 2xl:flex-row gap-6 h-auto 2xl:h-auto">
 
@@ -173,6 +185,7 @@ export default function Docker() {
               <input
                 type="text"
                 placeholder="Search Containers (Name, ID, Port)..."
+                aria-label="Search containers"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full h-full bg-[#161D22] rounded-[10px] px-4 text-white text-base focus:outline-none placeholder:text-white/40"
@@ -194,12 +207,14 @@ export default function Docker() {
             </button>
             <button
               onClick={() => setShowFilter(true)}
+              aria-label="Filter containers"
               className={`w-12 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center transition-colors cursor-pointer border border-white/5 ${filterNode ? "text-white border-[#69639E]" : "text-white/70"}`}
             >
               <Funnel size={18} weight={filterNode ? "fill" : "regular"} />
             </button>
             <button
               onClick={clearFilters}
+              aria-label="Clear container filters"
               className="w-12 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
             >
               <XCircle size={18} />
@@ -224,31 +239,32 @@ export default function Docker() {
 
         {/* Table Headers (Hidden on mobile) */}
         <div className="hidden md:grid grid-cols-5 text-white/50 text-xs font-bold tracking-wider mb-4 px-6 select-none">
-          <div onClick={() => handleSort("containerId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          <button type="button" onClick={() => handleSort("containerId")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             ID {sortConfig.key === "containerId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("name")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("name")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Name {sortConfig.key === "name" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("port")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("port")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Port {sortConfig.key === "port" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Server Name {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("ip")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("ip")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Server IP {sortConfig.key === "ip" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
+          </button>
         </div>
 
         {/* List */}
         <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
-          {loadingContainers ? (
-            <div className="flex justify-center items-center h-40 text-white/30 animate-pulse">Loading containers...</div>
+          {loadingContainers || !loadedNodes || !loadedClusters ? (
+            <LoadingState label="Loading containers" rows={6} />
           ) : filteredContainers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-white/30 gap-4">
+            <div className="flex flex-col items-center justify-center h-full text-white/70 gap-4 py-10">
               <Cube size={48} weight="duotone" className="opacity-20" />
-              <div className="text-sm">No containers found</div>
+              <div className="text-sm">{search || filterNode ? "No containers match your filters." : nodes.length === 0 ? "Add a node before adding containers." : "No containers yet."}</div>
+              {!search && !filterNode && (nodes.length === 0 ? <Link to="/nodes" className="text-sm text-[#A8C9AD] underline">Go to nodes</Link> : <button type="button" onClick={() => setShowAdd(true)} className="text-sm text-[#A8C9AD] underline">Add container</button>)}
             </div>
           ) : (
             filteredContainers.map(c => (
@@ -278,13 +294,13 @@ export default function Docker() {
                   {/* Server IP + Actions */}
                   <div className="flex justify-between items-center text-white/90">
                     <span className="truncate">{getNodeIP(c.nodeId)}</span>
-                    <div
+                    <button type="button"
                       onClick={() => setViewContainer(c)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[#69639E] hover:text-[#A8C9AD] flex items-center gap-1 cursor-pointer"
-                      title="View Container"
+                      className="text-[#A8C9AD] hover:text-white flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded"
+                      aria-label={`View ${c.name}`}
                     >
                       <CaretCircleRight size={22} weight="fill" />
-                    </div>
+                    </button>
                   </div>
                 </div>
 
@@ -299,17 +315,14 @@ export default function Docker() {
                       </div>
                     </div>
                     <div className="flex gap-3">
-                      <CaretCircleRight
-                        size={20}
-                        weight="fill"
-                        onClick={() => setViewContainer(c)}
-                        className="text-[#69639E] active:scale-95 transition-all cursor-pointer"
-                      />
+                      <button type="button" onClick={() => setViewContainer(c)} aria-label={`View ${c.name}`} className="text-[#A8C9AD] p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded">
+                        <CaretCircleRight size={20} weight="fill" />
+                      </button>
                     </div>
                   </div>
 
                   {/* Row 2: Subtitle (ID & Node) */}
-                  <div className="flex items-center gap-3 text-[10px] text-white/50">
+                  <div className="flex items-center gap-3 text-xs text-white/50">
                     <span>{c.containerId}</span>
                     <div className="flex items-center gap-1">
                       <div className="w-1.5 h-1.5 rounded-full bg-[#69639E]"></div>
@@ -320,11 +333,11 @@ export default function Docker() {
                   {/* Row 3: Stats Grid (Compact) */}
                   <div className="grid grid-cols-2 gap-2 mt-1 pt-2 border-t border-white/5">
                     <div>
-                      <div className="text-[9px] text-white/30 font-bold">Port</div>
+                      <div className="text-xs text-white/60 font-bold">Port</div>
                       <div className="text-xs text-[#A8C9AD]">:{c.port}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 font-bold">IP</div>
+                      <div className="text-xs text-white/60 font-bold">IP</div>
                       <div className="text-xs text-white/80">{getNodeIP(c.nodeId)}</div>
                     </div>
                   </div>
@@ -353,13 +366,27 @@ export default function Docker() {
           containers={containers}
         />
       )}
-      {/* Filter Modal Logic Simplified (Inline) */}
       {showFilter && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowFilter(false); }}>
+        <DockerFilterDialog
+          nodes={nodes}
+          filterNode={filterNode}
+          setFilterNode={setFilterNode}
+          onClose={() => setShowFilter(false)}
+        />
+      )}
+
+    </div>
+  );
+}
+
+function DockerFilterDialog({ nodes, filterNode, setFilterNode, onClose }) {
+  const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
+  return (
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Filter containers" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
           <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
             <h2 className="text-xl font-bold text-white mb-6">Filter Containers</h2>
 
-            <label className="text-xs font-bold text-white/40 tracking-wider mb-2 block">By Node</label>
+            <div className="text-xs font-bold text-white/70 tracking-wider mb-2 block">By Node</div>
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setFilterNode("")}
@@ -377,11 +404,8 @@ export default function Docker() {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowFilter(false)} className="w-full mt-6 bg-[#161D22] text-white py-3 rounded-xl font-bold hover:bg-white/10 transition-colors">Close</button>
+            <button onClick={onClose} className="w-full mt-6 bg-[#161D22] text-white py-3 rounded-xl font-bold hover:bg-white/10 transition-colors">Close</button>
           </div>
         </div>
-      )}
-
-    </div>
   );
 }

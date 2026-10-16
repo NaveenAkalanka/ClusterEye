@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Outfit', system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, monospace;
+}
 
 html,
 body,
@@ -7,7 +11,32 @@ body,
   height: 100%;
   background-color: #060906;
   color: white;
-  font-family: 'Roboto Mono', monospace;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+code,
+kbd,
+pre {
+  font-family: var(--font-mono);
+}
+
+/* Keep secondary copy readable on the dark application surface. */
+.text-white\/20 { color: rgb(255 255 255 / 0.48); }
+.text-white\/30 { color: rgb(255 255 255 / 0.55); }
+.text-white\/40 { color: rgb(255 255 255 / 0.62); }
+.text-white\/50 { color: rgb(255 255 255 / 0.70); }
+
+input::placeholder,
+textarea::placeholder {
+  color: rgb(255 255 255 / 0.5);
 }
 
 button {
@@ -123,4 +152,18 @@ input[type=number] {
 
 .animate-slideRight {
   animation: slideRight 0.3s ease-out forwards;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #A8C9AD;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import { XCircle, HardDrives } from "@phosphor-icons/react";
-import { doc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from "firebase/firestore";
+import { doc, deleteDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
+import useDialogFocus from "./useDialogFocus";
 
-export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allDisks = [] }) {
+export default function DiskModal({ disk, onClose, allNodes, clusters, allDisks = [] }) {
     const [editMode, setEditMode] = useState(false);
 
     // Local state for editing
@@ -23,6 +24,7 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose, true, confirmDelete);
 
     /* ---------------- Actions ---------------- */
     async function handleSave() {
@@ -41,8 +43,20 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
             return setError(`Cannot reduce size below current usage (${fmtBytes(disk.used)}). Deallocate nodes first.`);
         }
 
+        // Cluster reassignment guard: cannot move cluster while allocations exist
+        if (local.cluster !== disk.cluster) {
+            const allocatedBy = allNodes.filter(n => n.allocations?.some(a => a.diskId ? a.diskId === disk.id : a.disk === disk.disk));
+            if (allocatedBy.length > 0) {
+                return setError(
+                    `Cannot move disk to a different cluster while it is allocated to ${allocatedBy.length} node(s). Deallocate first.`
+                );
+            }
+        }
+
         setSaving(true);
         try {
+            const selectedCluster = clusters.find((item) => item.cluster === local.cluster);
+            if (!selectedCluster) throw new Error("Selected cluster no longer exists");
             const batch = writeBatch(db);
             const diskRef = doc(db, "disks", disk.id);
 
@@ -52,6 +66,7 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
                 model: local.model,
                 role: local.role,
                 cluster: local.cluster,
+                clusterId: selectedCluster.id,
                 total: newTotal,
                 updatedAt: serverTimestamp()
             });
@@ -59,8 +74,8 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
             // Rename logic if name changed
             if (newName !== disk.disk) {
                 allNodes.forEach(n => {
-                    if (n.allocations && n.allocations.some(a => a.disk === disk.disk)) {
-                        const newAllocations = n.allocations.map(a => a.disk === disk.disk ? { ...a, disk: newName } : a);
+                    if (n.allocations && n.allocations.some(a => a.diskId ? a.diskId === disk.id : a.disk === disk.disk)) {
+                        const newAllocations = n.allocations.map(a => (a.diskId ? a.diskId === disk.id : a.disk === disk.disk) ? { ...a, diskId: disk.id, disk: newName } : a);
                         const nodeRef = doc(db, "nodes", n.id);
                         batch.update(nodeRef, { allocations: newAllocations });
                     }
@@ -79,7 +94,7 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
 
     async function handleDelete() {
         // Strict Check: Cannot delete if assigned to ANY node
-        const linkedNodes = allNodes.filter(n => n.allocations?.some(a => a.disk === disk.disk));
+        const linkedNodes = allNodes.filter(n => n.allocations?.some(a => a.diskId ? a.diskId === disk.id : a.disk === disk.disk));
         if (linkedNodes.length > 0) {
             setError(`Cannot delete. Disk is in use by ${linkedNodes.length} node(s). Details: ${linkedNodes.map(n => n.node).join(", ")}`);
             return; // Do not proceed to confirmation
@@ -103,8 +118,8 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
 
     /* ---------------- UI ---------------- */
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fade-in">
-            <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90vh] shadow-2xl">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Disk ${disk.disk}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+            <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90dvh] custom-scrollbar shadow-2xl">
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
@@ -140,7 +155,7 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
                         />
                     </Field>
 
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Model">
                             <CustomSelect
                                 value={local.model}
@@ -160,7 +175,7 @@ export default function DiskModal({ disk, onClose, uid, allNodes, clusters, allD
                     </div>
 
                     {/* Cluster & Total Size */}
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Cluster">
                             <CustomSelect
                                 value={local.cluster}

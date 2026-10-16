@@ -1,6 +1,6 @@
 import { Minus, Plus } from "@phosphor-icons/react";
 
-export default function NumberStepper({ value, onChange, min = 0, max, step = 1, className = "", placeholder = "" }) {
+export default function NumberStepper({ value, onChange, min = 0, max, step = 1, className = "", placeholder = "", label = "Amount" }) {
     const handleDecrement = () => {
         const newVal = Number(value) - step;
         if (newVal >= min) onChange(newVal);
@@ -16,6 +16,7 @@ export default function NumberStepper({ value, onChange, min = 0, max, step = 1,
             <button
                 type="button"
                 onClick={handleDecrement}
+                aria-label={`Decrease ${label}`}
                 className="px-3 py-2 text-white/50 hover:text-white hover:bg-white/5 transition-colors rounded-l-xl active:scale-95 cursor-pointer"
             >
                 <Minus size={14} weight="bold" />
@@ -23,10 +24,11 @@ export default function NumberStepper({ value, onChange, min = 0, max, step = 1,
 
             <input
                 type="number"
+                aria-label={label}
                 value={value}
                 onChange={(e) => onChange(Number(e.target.value))}
                 placeholder={placeholder}
-                className="w-full bg-transparent text-center text-sm font-semibold outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-white/20"
+                className="w-full bg-transparent text-center text-sm font-semibold outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-white/50"
                 min={min}
                 max={max}
             />
@@ -34,6 +36,7 @@ export default function NumberStepper({ value, onChange, min = 0, max, step = 1,
             <button
                 type="button"
                 onClick={handleIncrement}
+                aria-label={`Increase ${label}`}
                 className="px-3 py-2 text-white/50 hover:text-white hover:bg-white/5 transition-colors rounded-r-xl active:scale-95 cursor-pointer"
             >
                 <Plus size={14} weight="bold" />

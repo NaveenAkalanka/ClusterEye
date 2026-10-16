@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React from "react";
 import { XCircle } from "@phosphor-icons/react";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
+import useDialogFocus from "./useDialogFocus";
 
 export default function AddDiskModal({
     open,
@@ -21,11 +22,12 @@ export default function AddDiskModal({
     saving,
     error,
 }) {
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose, open);
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fade-in text-sans">
-            <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90vh] shadow-2xl">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add disk" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn text-sans">
+            <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90dvh] custom-scrollbar shadow-2xl">
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
@@ -51,6 +53,7 @@ export default function AddDiskModal({
                     <Field label="Disk Name / ID">
                         <input
                             type="text"
+                            aria-label="Disk name or ID"
                             placeholder="e.g. local-lvm"
                             value={disk}
                             onChange={(e) => setDisk(e.target.value)}
@@ -59,7 +62,7 @@ export default function AddDiskModal({
                         />
                     </Field>
 
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Model">
                             <CustomSelect
                                 value={model}
@@ -101,6 +104,7 @@ export default function AddDiskModal({
                         <NumberStepper
                             value={totalGB}
                             onChange={setTotalGB}
+                            label="Total size in GB"
                             min={1}
                             placeholder="e.g. 1000"
                             className="w-full"

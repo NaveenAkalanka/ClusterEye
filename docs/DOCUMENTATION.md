@@ -2,21 +2,22 @@
 
 **Date:** 2026-01-04
 **Project:** ClusterEye
-**Repository:** [GitHub](https://github.com/NaveenAkalanka/ClusterEye)
 **License:** CC BY-NC-SA 4.0
 
 ---
 
 ## 1. Introduction & Vision
 
-**ClusterEye** is a unified dashboard designed to simplify the management of hybrid infrastructure. The core idea was to build a "Single Pane of Glass" for monitoring Proxmox nodes, LXC containers, Virtual Machines, and physical storage, visualizing everything with a high-end, cyber-aesthetic UI.
+**ClusterEye** is a dashboard for organizing records of clusters, VM/LXC nodes, Docker containers, physical storage, and IP addresses. Firestore synchronizes saved records; this version does not collect live health or availability data from infrastructure.
+
+👉 **View Project on GitHub:** [https://github.com/NaveenAkalanka/ClusterEye](https://github.com/NaveenAkalanka/ClusterEye)
 
 > [!INFO]
 > **Vision:** "Move away from boring enterprise dashboards to a modern, 'Glassmorphism' design with strict typography."
 
 ### Why ClusterEye?
 *   🌊 **Visual Network Topology:** Unlike standard lists, ClusterEye visualizes network subnets as a 16x16 matrix (IpMap).
-*   ⚡ **Real-Time Sync:** Leveraging Google Firestore for < 100ms updates.
+*   ⚡ **Record Sync:** Firestore listeners update the UI when saved inventory changes. No update latency guarantee is made.
 *   🎨 **Aesthetics:** Minimalist, Dark Mode-first, strict `Roboto Mono` typography.
 
 ---
@@ -60,7 +61,7 @@ The application is built as a **Single Page Application (SPA)** using modern web
 **Implementation:**
 *   A 16x16 CSS Grid.
 *   **Logic:** `ipAddress.split('.')` to determine the last octet.
-*   **Visuals:** Active hosts glow green (`#00FF94`); empty slots remain dark.
+*   **Visuals:** Recorded node IPs are highlighted; unrecorded addresses have not been checked for availability.
 
 ### C. Asset Management (Nodes, Disks, Clusters)
 All follow a standard CRUD pattern with real-time updates.
@@ -124,24 +125,26 @@ VITE_FIREBASE_AUTH_DOMAIN=...
 ![Placeholder: Login Screen](https://placehold.co/1200x600/161D22/FFF?text=Screenshot:+Login+Page)
 
 ### Authentication
-*   Protected `ProtectedRoute` wrapper.
-*   Redirects unauthenticated users to `/login`.
+*   `App.jsx` renders authenticated and unauthenticated route trees based on Firebase Auth state.
+*   Unauthenticated routes other than `/signup` redirect to `/` (the login page).
 
 ### Database Rules (`firestore.rules`)
 ```javascript
 service cloud.firestore {
   match /databases/{database}/documents {
     function isOwner(userId) {
-      return request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
     }
     match /nodes/{nodeId} {
-      allow read, write: if isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId);
+      allow read, delete: if isOwner(resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
     }
   }
 }
 ```
 > [!WARNING]
-> **Policy:** Complete data isolation. User A cannot read User B's data.
+> **Policy:** Users can access only documents carrying their own `userId`. These rules do not validate field contents or encrypt stored passwords.
 
 ---
 
@@ -159,6 +162,6 @@ service cloud.firestore {
 
 ## 8. Conclusion
 
-ClusterEye represents a complete, production-ready infrastructure dashboard. It balances "Eye Candy" with serious technical capability.
+ClusterEye is a usable infrastructure inventory dashboard. Live health checks, stronger data validation, and safe secret storage remain future work.
 
 ![Placeholder: Profile Page](https://placehold.co/1200x600/161D22/FFF?text=Screenshot:+Profile+Page)

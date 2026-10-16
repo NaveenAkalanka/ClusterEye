@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Envelope, LockKey, User, CircleNotch, Warning } from "@phosphor-icons/react";
+import logoUrl from "../assets/ClusterEye.svg";
 
 export default function Signup() {
     const [name, setName] = useState("");
@@ -10,7 +11,6 @@ export default function Signup() {
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
-    const navigate = useNavigate();
 
     const handleSignup = async (e) => {
         e.preventDefault();
@@ -48,9 +48,9 @@ export default function Signup() {
 
                 {/* Logo Area */}
                 <div className="flex flex-col items-center mb-10">
-                    <img src="/ClusterEye.svg" alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
-                    <h1 className="text-3xl font-bold text-white tracking-wide">Create Account</h1>
-                    <p className="text-white/40 text-sm mt-2">Join ClusterEye for advanced monitoring</p>
+                    <img src={logoUrl} alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
+                    <h1 className="text-3xl font-bold text-white tracking-tight">Create account</h1>
+                    <p className="text-white/60 text-sm mt-2">Create an account to organize your infrastructure</p>
                 </div>
 
                 <form onSubmit={handleSignup} className="space-y-4">
@@ -70,7 +70,7 @@ export default function Signup() {
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/20 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
+                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
                         />
                     </div>
 
@@ -82,7 +82,7 @@ export default function Signup() {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/20 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
+                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
                         />
                     </div>
 
@@ -94,7 +94,7 @@ export default function Signup() {
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/20 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
+                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
                         />
                     </div>
 
@@ -110,7 +110,7 @@ export default function Signup() {
                 <div className="mt-8 text-center">
                     <p className="text-white/40 text-sm">
                         Already have an account?{" "}
-                        <Link to="/login" className="text-[#A8C9AD] hover:text-[#69639E] font-semibold transition-colors">
+                        <Link to="/" className="text-[#A8C9AD] hover:text-[#69639E] font-semibold transition-colors">
                             Log In
                         </Link>
                     </p>

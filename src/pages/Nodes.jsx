@@ -6,13 +6,10 @@ import {
   where,
   orderBy,
   onSnapshot,
-  addDoc,
   serverTimestamp,
   doc,
-  writeBatch,
-  increment,
+  runTransaction,
 } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
 import {
   Desktop,
   HardDrives,
@@ -28,19 +25,23 @@ import {
   Globe,
   Circuitry,
 } from "@phosphor-icons/react";
-import { db, auth } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
 import { isIpInSubnet, calculateNetworkAddress } from "../utils/network";
 import NodeModal from "../components/NodeModal";
 import AddNodeModal from "../components/AddNodeModal";
 import FilterModal from "../components/FilterModal";
+import LoadError from "../components/LoadError";
+import LoadingState from "../components/LoadingState";
+import { Link } from "react-router-dom";
 
-export default function Nodes() {
-  const [uid, setUid] = useState(null);
+export default function Nodes({ uid }) {
   const [clusters, setClusters] = useState([]);
   const [disks, setDisks] = useState([]);
   const [nodes, setNodes] = useState([]);
   const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [viewNode, setViewNode] = useState(null);
@@ -62,14 +63,9 @@ export default function Nodes() {
   const [filterDisk, setFilterDisk] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
-  /* ---------------- Auth Listener ---------------- */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUid(u ? u.uid : null));
-    return () => unsub();
-  }, []);
-
   /* ---------------- Load Data ---------------- */
   useEffect(() => {
+    setLoadError(false);
     if (!uid) {
       setClusters([]);
       setDisks([]);
@@ -83,12 +79,14 @@ export default function Nodes() {
 
     const unsubClusters = onSnapshot(
       query(collection(db, "clusters"), where("userId", "==", uid), orderBy("cluster")),
-      (snap) => setClusters(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      (snap) => setClusters(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError(true)
     );
 
     const unsubDisks = onSnapshot(
       query(collection(db, "disks"), where("userId", "==", uid), orderBy("disk")),
-      (snap) => setDisks(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      (snap) => setDisks(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError(true)
     );
 
     const unsubNodes = onSnapshot(
@@ -98,14 +96,15 @@ export default function Nodes() {
         setLoading(false);
       },
       () => {
-        setError("Failed to load nodes.");
+        setLoadError(true);
         setLoading(false);
       }
     );
 
     const unsubContainers = onSnapshot(
       query(collection(db, "containers"), where("userId", "==", uid)),
-      (snap) => setContainers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      (snap) => setContainers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError(true)
     );
 
     return () => {
@@ -114,22 +113,7 @@ export default function Nodes() {
       unsubNodes();
       unsubContainers();
     };
-  }, [uid]);
-
-  // ... (lines 111-520 unchanged)
-
-  {
-    viewNode && (
-      <NodeModal
-        node={viewNode}
-        onClose={() => setViewNode(null)}
-        clusters={clusters}
-        disks={disks}
-        containers={containers}
-        uid={uid}
-      />
-    )
-  }
+  }, [uid, retryKey]);
 
   /* ---------------- Helpers ---------------- */
   function isValidIP(ip) {
@@ -216,7 +200,11 @@ export default function Nodes() {
       if (gbNum > freeGB)
         return setError(`${disk.disk} has only ${freeGB.toFixed(1)} GB free.`);
 
-      allocations.push({ disk: disk.disk, allocatedGB: gbNum });
+      if (disk.clusterId ? disk.clusterId !== clObj.id : disk.cluster !== cluster)
+        return setError(`${disk.disk} is not in the selected cluster.`);
+      if (allocations.some((item) => item.diskId === disk.id))
+        return setError("Choose each disk only once.");
+      allocations.push({ diskId: disk.id, disk: disk.disk, allocatedGB: gbNum });
     }
 
     // Calculate total allocated bytes
@@ -231,6 +219,7 @@ export default function Nodes() {
       node: nodeName.trim(),
       type,
       cluster,
+      clusterId: clObj.id,
       ipAddress: ipAddress.trim(),
       allocations,
       allocated: totalAllocatedBytes,
@@ -242,39 +231,26 @@ export default function Nodes() {
 
     setSaving(true);
     try {
-      const batch = writeBatch(db);
-
-      // Create new node ref
       const newNodeRef = doc(collection(db, "nodes"));
-      batch.set(newNodeRef, nodePayload);
-
-      // Update disk usage
-      for (const a of allocations) {
-        // Find disk ID by name (since we stored disk name in allocations, but need ID for doc ref)
-        // Wait, allocations array build in previous loop used `disk.disk` name. 
-        // We need the ID. Let's fix the allocation building loop above or lookup here.
-        // Actually, looking at lines 156-166, we iterate allocRows which has diskId.
-        // Let's refine the loop below to match disk names to IDs or just rely on the fact we need IDs.
-
-        // Correct approach: We need to find the disk ID for the update.
-        // In the previous loop (lines 155-167), we found `disk` object. 
-        // `allocations` currently stores { disk: "diskName", ... }. 
-        // We should probably change usages to use IDs or looking it up again.
-        // Let's just look it up again for safety/simplicity in this batch block.
-        const diskObj = disks.find(d => d.disk === a.disk);
-        if (diskObj) {
-          const diskRef = doc(db, "disks", diskObj.id);
-          const bytesToAdd = (Number(a.allocatedGB) || 0) * 1_000_000_000;
-          batch.update(diskRef, { used: increment(bytesToAdd) });
-        }
-      }
-
-      await batch.commit();
+      await runTransaction(db, async (transaction) => {
+        const diskRefs = allocations.map((a) => doc(db, "disks", a.diskId));
+        const diskSnaps = await Promise.all(diskRefs.map((ref) => transaction.get(ref)));
+        allocations.forEach((a, index) => {
+          const diskData = diskSnaps[index].data();
+          if (!diskData || diskData.userId !== uid) throw new Error(`${a.disk} is no longer available.`);
+          if (diskData.clusterId ? diskData.clusterId !== clObj.id : diskData.cluster !== cluster) throw new Error(`${a.disk} is no longer in this cluster.`);
+          const used = Number(diskData.used || 0);
+          const nextUsed = used + Number(a.allocatedGB) * 1_000_000_000;
+          if (nextUsed > Number(diskData.total || 0)) throw new Error(`${a.disk} does not have enough free space.`);
+          transaction.update(diskRefs[index], { used: nextUsed, free: Number(diskData.total) - nextUsed });
+        });
+        transaction.set(newNodeRef, nodePayload);
+      });
       resetForm();
       setShowCreate(false);
     } catch (err) {
       console.error(err);
-      setError("Failed to create.");
+      setError(err.message || "Failed to create.");
     } finally {
       setSaving(false);
     }
@@ -294,10 +270,11 @@ export default function Nodes() {
     let result = [...nodes];
 
     if (search.trim()) {
+      const queryText = search.toLowerCase();
       result = result.filter(
         (n) =>
-          n.node.toLowerCase().includes(search.toLowerCase()) ||
-          n.nodeId.toLowerCase().includes(search.toLowerCase())
+          (n.node || "").toLowerCase().includes(queryText) ||
+          (n.nodeId || "").toLowerCase().includes(queryText)
       );
     }
 
@@ -360,6 +337,8 @@ export default function Nodes() {
   const totalVM = nodes.filter((n) => n.type === "VM").length;
   const totalLXC = nodes.filter((n) => n.type === "LXC").length;
 
+  if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
+
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
 
@@ -371,6 +350,7 @@ export default function Nodes() {
             <input
               type="text"
               placeholder="Search Nodes..."
+              aria-label="Search nodes"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full h-full bg-[#161D22] rounded-[10px] px-4 text-white text-base focus:outline-none placeholder:text-white/40"
@@ -392,12 +372,14 @@ export default function Nodes() {
           </button>
           <button
             onClick={() => setShowFilter(true)}
+            aria-label="Filter nodes"
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <Funnel size={18} />
           </button>
           <button
             onClick={clearFilters}
+            aria-label="Clear node filters"
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <XCircle size={18} />
@@ -416,46 +398,49 @@ export default function Nodes() {
       <section className="flex-1 bg-[#0D100D] rounded-[20px] p-4 md:p-6 md:h-full md:overflow-y-auto custom-scrollbar h-fit">
 
         {/* Table Headers (Hidden on mobile) */}
-        <div className="hidden md:grid grid-cols-7 text-white/50 text-xs font-bold tracking-wider mb-4 px-6 select-none">
-          <div onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+        <div className="hidden xl:grid grid-cols-7 text-white/50 text-xs font-bold tracking-wider mb-4 px-6 select-none">
+          <button type="button" onClick={() => handleSort("nodeId")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             ID {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("node")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("node")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Node {sortConfig.key === "node" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("type")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("type")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Type {sortConfig.key === "type" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Disk {sortConfig.key === "disk" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("allocated")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("allocated")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Allocated {sortConfig.key === "allocated" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("ipAddress")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("ipAddress")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
+          </button>
         </div>
 
         {/* Table Rows */}
         <div className="flex flex-col gap-2">
           {loading ? (
-            <div className="text-white/40 text-center py-12 text-lg">Loading system nodes...</div>
+            <LoadingState label="Loading nodes" rows={6} />
           ) : filteredNodes.length === 0 ? (
-            <div className="text-white/40 text-center py-12 text-lg">No nodes found in this sector.</div>
+            <div className="text-white/70 text-center py-12 text-sm space-y-3">
+              <p>{search || filterType || filterCluster || filterDisk ? "No nodes match your filters." : clusters.length === 0 ? "Create a cluster before adding nodes." : disks.length === 0 ? "Add a disk before creating a node." : "No nodes yet. Add one to track its allocation."}</p>
+              {!search && !filterType && !filterCluster && !filterDisk && (clusters.length === 0 ? <Link to="/clusters" className="inline-block text-[#A8C9AD] underline">Create cluster</Link> : disks.length === 0 ? <Link to="/disks" className="inline-block text-[#A8C9AD] underline">Add disk</Link> : <button type="button" onClick={() => setShowCreate(true)} className="text-[#A8C9AD] underline">Add node</button>)}
+            </div>
           ) : (
             filteredNodes.map((n) => (
               <div key={n.id}>
                 {/* Desktop View */}
                 <div
-                  className="hidden md:grid grid-cols-7 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5"
+                  className="hidden xl:grid grid-cols-7 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5"
                 >
                   <div className="truncate pr-4 text-white/60">{n.nodeId}</div>
                   <div className="truncate pr-4">{n.node}</div>
-                  <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90 w-fit">{n.type}</div>
+                  <div className="px-1.5 py-0.5 rounded bg-white/10 text-xs font-bold text-white/90 w-fit">{n.type}</div>
                   <div className="flex items-center gap-2 truncate pr-4">
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: clusters.find(c => c.cluster === n.cluster)?.color || "#69639E" }}></div>
                     <span className="text-sm font-normal text-white/80 truncate">{n.cluster}</span>
@@ -464,36 +449,33 @@ export default function Nodes() {
                   <div className="text-sm font-normal text-white/80">{fmtBytes(n.allocated || 0)}</div>
                   <div className="flex justify-between items-center text-sm text-white/90">
                     <span>{n.ipAddress}</span>
-                    <div
+                    <button type="button"
                       onClick={() => setViewNode(n)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-[#69639E] hover:text-[#A8C9AD] flex items-center gap-1 cursor-pointer"
-                      title="View Node"
+                      className="text-[#A8C9AD] hover:text-white flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded"
+                      aria-label={`View ${n.node}`}
                     >
                       <CaretCircleRight size={22} weight="fill" />
-                    </div>
+                    </button>
                   </div>
                 </div>
 
                 {/* Mobile View (Card) */}
                 <div
-                  className="md:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-3 gap-2 text-white transition-all border border-white/5 group"
+                  className="xl:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-3 gap-2 text-white transition-all border border-white/5 group"
                 >
                   {/* Row 1: Name, Type, Arrow */}
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-2">
                       <div className="text-sm font-bold text-white">{n.node}</div>
-                      <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90">{n.type}</div>
+                      <div className="px-1.5 py-0.5 rounded bg-white/10 text-xs font-bold text-white/90">{n.type}</div>
                     </div>
-                    <CaretCircleRight
-                      onClick={() => setViewNode(n)}
-                      size={20}
-                      weight="fill"
-                      className="text-[#69639E] active:scale-95 transition-all cursor-pointer"
-                    />
+                    <button type="button" onClick={() => setViewNode(n)} aria-label={`View ${n.node}`} className="text-[#A8C9AD] p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded">
+                      <CaretCircleRight size={20} weight="fill" />
+                    </button>
                   </div>
 
                   {/* Row 2: Subtitle (ID & Cluster) */}
-                  <div className="flex items-center gap-3 text-[10px] text-white/50 -mt-1">
+                  <div className="flex items-center gap-3 text-xs text-white/50 -mt-1">
                     <span className="font-mono">{n.nodeId}</span>
                     <div className="flex items-center gap-1">
                       <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: clusters.find(c => c.cluster === n.cluster)?.color || "#69639E" }}></div>
@@ -504,15 +486,15 @@ export default function Nodes() {
                   {/* Row 3: Stats Grid (Compact) */}
                   <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-white/5">
                     <div>
-                      <div className="text-[9px] text-white/30 font-bold">IP</div>
+                      <div className="text-xs text-white/60 font-bold">IP</div>
                       <div className="text-xs text-white/80 font-mono truncate">{n.ipAddress}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 font-bold">Alloc</div>
+                      <div className="text-xs text-white/60 font-bold">Alloc</div>
                       <div className="text-xs text-white/80">{fmtBytes(n.allocated || 0)}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] text-white/30 font-bold">Disks</div>
+                      <div className="text-xs text-white/60 font-bold">Disks</div>
                       <div className="text-xs text-white/60 truncate">{n.allocations?.map(a => a.disk).join(", ") || "—"}</div>
                     </div>
                   </div>
@@ -582,21 +564,6 @@ export default function Nodes() {
 }
 
 /* ---------------- Small Components ---------------- */
-
-function Th({ children, onClick }) {
-  return (
-    <th
-      onClick={onClick}
-      className="px-4 py-3 font-medium text-white/80 border-b border-white/10 cursor-pointer hover:text-white"
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children }) {
-  return <td className="px-4 py-3 border-b border-white/5">{children}</td>;
-}
 
 function StatCard({ label, value, mockup, fill }) {
   if (mockup) {

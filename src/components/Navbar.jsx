@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, ShippingContainer } from "@phosphor-icons/react"; // Importing Phosphor icons
+import logoUrl from "../assets/ClusterEye.svg";
+import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, ShippingContainer, List, X } from "@phosphor-icons/react"; // Importing Phosphor icons
 
 export default function Navbar({ user }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const sidebarRef = useRef(null);
   const menuRef = useRef(null);
-  const navigate = useNavigate();
   const location = useLocation();
 
   const handleLogout = async () => {
@@ -34,6 +34,11 @@ export default function Navbar({ user }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    setShowMenu(false);
+    setShowSidebar(false);
+  }, [location.key]);
+
   const toggleSidebar = () => setShowSidebar(!showSidebar);
 
   return (
@@ -41,7 +46,7 @@ export default function Navbar({ user }) {
       <div className="w-full h-20 bg-[#0D100D] rounded-[20px] relative flex items-center justify-between px-4 min-[1200px]:px-8 flex-shrink-0">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 min-[1200px]:gap-3">
-          <img src="/ClusterEye.svg" alt="ClusterEye Logo" className="w-8 h-8 min-[1200px]:w-10 min-[1200px]:h-10 object-contain" />
+          <img src={logoUrl} alt="ClusterEye Logo" className="w-8 h-8 min-[1200px]:w-10 min-[1200px]:h-10 object-contain" />
           <div className="text-white text-lg min-[1200px]:text-2xl font-bold tracking-widest leading-none">ClusterEye</div>
         </Link>
 
@@ -86,13 +91,19 @@ export default function Navbar({ user }) {
         </div>
 
         {/* Mobile Toggle */}
-        <button className="min-[1200px]:hidden text-white text-3xl cursor-pointer" onClick={toggleSidebar}>☰</button>
+        <button
+          className="min-[1200px]:hidden text-white cursor-pointer p-2"
+          onClick={toggleSidebar}
+          aria-label="Open menu"
+        >
+          <List size={28} weight="bold" />
+        </button>
       </div>
 
       {/* Mobile Sidebar */}
       {showSidebar && (
         <div ref={sidebarRef} className="fixed inset-0 bg-black/80 z-[100] min-[1200px]:hidden backdrop-blur-sm animate-fadeIn">
-          <div className="w-64 h-full bg-[#0D100D] border-r border-white/10 p-6 flex flex-col gap-6 shadow-2xl animate-slideRight">
+          <div className="w-64 h-full overflow-y-auto bg-[#0D100D] border-r border-white/10 p-6 flex flex-col gap-6 shadow-2xl animate-slideRight">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-zinc-300 rounded-full flex items-center justify-center text-black font-bold">
@@ -100,7 +111,13 @@ export default function Navbar({ user }) {
                 </div>
                 <div className="text-white text-sm font-medium truncate max-w-[120px]">{user?.email?.split('@')[0]}</div>
               </div>
-              <button onClick={() => setShowSidebar(false)} className="text-white text-2xl cursor-pointer">✕</button>
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="text-white cursor-pointer p-1"
+                aria-label="Close menu"
+              >
+                <X size={22} weight="bold" />
+              </button>
             </div>
 
             <div className="flex flex-col gap-2">

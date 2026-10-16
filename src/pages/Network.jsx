@@ -1,16 +1,41 @@
 import { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-import { db, auth } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
 import { MagnifyingGlass, Globe, Circuitry, Warning, Funnel, XCircle, CaretUp, CaretDown } from "@phosphor-icons/react";
 import FilterModal from "../components/FilterModal";
 import CustomSelect from "../components/CustomSelect";
+import LoadError from "../components/LoadError";
+import { DashboardLoadingState } from "../components/LoadingState";
+import { Link } from "react-router-dom";
 
-export default function Network() {
-  const [uid, setUid] = useState(null);
+const NETWORK_CLUSTER_STORAGE_PREFIX = "clustereye:network:matrix-cluster:";
+
+function readRememberedCluster(userId) {
+  if (!userId) return "";
+  try {
+    return window.localStorage.getItem(`${NETWORK_CLUSTER_STORAGE_PREFIX}${userId}`) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberCluster(userId, clusterId) {
+  if (!userId) return;
+  try {
+    const key = `${NETWORK_CLUSTER_STORAGE_PREFIX}${userId}`;
+    if (clusterId) window.localStorage.setItem(key, clusterId);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // The selector still works when browser storage is unavailable.
+  }
+}
+
+export default function Network({ uid }) {
   const [nodes, setNodes] = useState([]);
   const [clusters, setClusters] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [loaded, setLoaded] = useState({ nodes: false, clusters: false });
   const [search, setSearch] = useState("");
 
   const [activeTab, setActiveTab] = useState("nodes");
@@ -20,40 +45,48 @@ export default function Network() {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   // Matrix State
-  const [matrixCluster, setMatrixCluster] = useState("");
+  const [matrixClusterId, setMatrixClusterId] = useState(() => readRememberedCluster(uid));
   const [matrixSubnet, setMatrixSubnet] = useState("");
 
-  /* ---------------- Auth & Data ---------------- */
+  /* ---------------- Data ---------------- */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUid(u ? u.uid : null));
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
+    setLoadError(false);
+    setLoaded({ nodes: false, clusters: false });
     if (!uid) {
       setNodes([]);
       setClusters([]);
-      setLoading(false);
       return;
     }
-    setLoading(true);
 
     const qNodes = query(collection(db, "nodes"), where("userId", "==", uid), orderBy("node"));
     const qClusters = query(collection(db, "clusters"), where("userId", "==", uid), orderBy("cluster"));
 
-    const unsubNodes = onSnapshot(qNodes, (snap) => setNodes(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubClusters = onSnapshot(qClusters, (snap) => setClusters(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsubNodes = onSnapshot(qNodes, (snap) => {
+      setNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoaded((current) => ({ ...current, nodes: true }));
+    }, () => setLoadError(true));
+    const unsubClusters = onSnapshot(qClusters, (snap) => {
+      setClusters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoaded((current) => ({ ...current, clusters: true }));
+    }, () => setLoadError(true));
 
-    setLoading(false);
     return () => { unsubNodes(); unsubClusters(); };
-  }, [uid]);
+  }, [uid, retryKey]);
 
-  // Auto-select first cluster on load
+  // Keep the matrix on a valid cluster when clusters are added, renamed, or deleted.
   useEffect(() => {
-    if (clusters && clusters.length > 0 && !matrixCluster) {
-      setMatrixCluster(clusters[0].cluster);
+    if (!loaded.clusters) return;
+    if (clusters.length === 0) {
+      setMatrixClusterId("");
+    } else if (!clusters.some((cluster) => cluster.id === matrixClusterId)) {
+      setMatrixClusterId(clusters[0].id);
     }
-  }, [clusters, matrixCluster]);
+  }, [clusters, loaded.clusters, matrixClusterId]);
+
+  useEffect(() => {
+    if (!loaded.clusters) return;
+    rememberCluster(uid, matrixClusterId);
+  }, [loaded.clusters, matrixClusterId, uid]);
 
   /* ---------------- Logic: IP Validation ---------------- */
   const validation = useMemo(() => {
@@ -132,12 +165,18 @@ export default function Network() {
     setSortConfig({ key: null, direction: "asc" });
   }
 
-  // Extract Subnets for selected Cluster (Visual Grouping by /24)
+  // Group recorded node IPs into /24 slices for the inventory map.
   const availableSubnets = useMemo(() => {
-    if (!matrixCluster || !filteredData.nodes) return [];
+    if (!matrixClusterId) return [];
 
-    const clusterNodes = filteredData.nodes.filter(n => n && n.cluster === matrixCluster);
+    const selectedCluster = clusters.find((cluster) => cluster.id === matrixClusterId);
+    if (!selectedCluster) return [];
+    const clusterNodes = nodes.filter((node) => node && (node.clusterId
+      ? node.clusterId === matrixClusterId
+      : node.cluster === selectedCluster.cluster));
     const subnets = new Set();
+
+    if (selectedCluster?.ipAddress) subnets.add(selectedCluster.ipAddress.split(".").slice(0, 3).join("."));
 
     clusterNodes.forEach(n => {
       if (n && n.ipAddress) {
@@ -148,7 +187,7 @@ export default function Network() {
       }
     });
     return Array.from(subnets).sort();
-  }, [filteredData.nodes, matrixCluster]);
+  }, [nodes, clusters, matrixClusterId]);
 
   // Auto-select first subnet
   useEffect(() => {
@@ -161,15 +200,22 @@ export default function Network() {
 
   /* ---------------- Matrix Logic ---------------- */ // Matrix Logic
   const matrixActiveIndices = useMemo(() => {
-    if (!matrixCluster || !matrixSubnet || !filteredData.nodes) return [];
+    if (!matrixClusterId || !matrixSubnet) return [];
+    const selectedCluster = clusters.find((cluster) => cluster.id === matrixClusterId);
+    if (!selectedCluster) return [];
 
-    return filteredData.nodes
-      .filter(n => n && n.cluster === matrixCluster && n.ipAddress && n.ipAddress.startsWith(matrixSubnet + "."))
+    return [...new Set(nodes
+      .filter((node) => node && (node.clusterId
+        ? node.clusterId === matrixClusterId
+        : node.cluster === selectedCluster.cluster) && node.ipAddress?.startsWith(matrixSubnet + "."))
       .map(n => {
         const parts = n.ipAddress.split('.');
         return parts.length === 4 ? parseInt(parts[3]) : -1;
-      });
-  }, [filteredData.nodes, matrixCluster, matrixSubnet]);
+      }).filter((index) => index >= 1 && index <= 254))];
+  }, [nodes, clusters, matrixClusterId, matrixSubnet]);
+
+  if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
+  if (!loaded.nodes || !loaded.clusters) return <DashboardLoadingState label="Loading network inventory" />;
 
 
   /* ---------------- UI Components ---------------- */
@@ -185,6 +231,7 @@ export default function Network() {
             <input
               type="text"
               placeholder="Search Network..."
+              aria-label="Search network inventory"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
@@ -236,16 +283,26 @@ export default function Network() {
         <div className="flex flex-col gap-3 mt-auto border-t border-white/5 pt-4">
           <div className="flex justify-between items-center">
             <h3 className="text-white/50 font-bold text-xs tracking-wider">Subnet Map</h3>
-            <div className="text-[10px] text-white/30 font-mono">/24</div>
+            <div className="text-xs text-white/60 font-mono">/24 inventory view</div>
           </div>
 
           <div className="relative z-20">
             <CustomSelect
-              value={matrixCluster}
-              onChange={setMatrixCluster}
-              options={(clusters || []).map(c => c.cluster)}
+              value={matrixClusterId}
+              onChange={setMatrixClusterId}
+              options={(clusters || []).map((cluster) => ({
+                value: cluster.id,
+                label: cluster.cluster || "Unnamed cluster",
+                color: cluster.color,
+              }))}
               placeholder="Select Cluster"
-              className="w-full"
+              size="compact"
+              renderOption={(option) => (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: option.color || "#69639E" }} />
+                  <span className="truncate">{option.label}</span>
+                </div>
+              )}
             />
           </div>
 
@@ -256,12 +313,12 @@ export default function Network() {
                 onChange={setMatrixSubnet}
                 options={availableSubnets.map(s => ({ value: s, label: s + ".0/24" }))}
                 placeholder="Select Subnet"
-                className="w-full text-xs"
+                size="compact"
               />
             </div>
           )}
 
-          <div className="bg-[#161D22]/40 rounded-xl p-3 border border-white/5 shadow-inner">
+          <div role="img" aria-label={`${matrixActiveIndices.length} node IP addresses recorded in ${matrixSubnet || "the selected"} /24 view`} className="bg-[#161D22]/40 rounded-xl p-3 border border-white/5 shadow-inner">
             <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-[2px]">
               {Array.from({ length: 254 }).map((_, i) => {
                 const index = i + 1;
@@ -269,20 +326,21 @@ export default function Network() {
                 return (
                   <div
                     key={index}
-                    title={`Host .${index}`}
+                    title={`Address .${index}: ${isActive ? "recorded node" : "not recorded"}`}
+                    aria-hidden="true"
                     className={`h-2 md:h-auto md:aspect-square rounded-[1px] transition-all duration-300 ${isActive ? "bg-[#00FF94] shadow-[0_0_6px_#00FF94] z-10 scale-125" : "bg-[#161D22] border border-white/5"}`}
                   />
                 )
               })}
             </div>
             <div className="flex justify-between items-center mt-2 px-1 border-t border-white/5 pt-1">
-              <div className="text-[9px] text-white/20 font-mono">{matrixSubnet ? matrixSubnet + ".1" : "1"}</div>
-              <div className="text-[9px] text-white/20 font-mono">{matrixSubnet ? matrixSubnet + ".254" : "254"}</div>
+              <div className="text-xs text-white/60 font-mono">{matrixSubnet ? matrixSubnet + ".1" : "1"}</div>
+              <div className="text-xs text-white/60 font-mono">{matrixSubnet ? matrixSubnet + ".254" : "254"}</div>
             </div>
           </div>
-          <div className="text-[10px] text-white/30 text-center flex justify-center gap-4">
-            <span className="text-[#00FF94] drop-shadow-[0_0_3px_#00FF94]">{matrixActiveIndices.length} Active</span>
-            <span>{254 - matrixActiveIndices.length} Free</span>
+          <div className="text-xs text-white/70 text-center flex justify-center gap-4">
+            <span className="text-[#A8C9AD]">{matrixActiveIndices.length} recorded</span>
+            <span>{254 - matrixActiveIndices.length} not recorded</span>
           </div>
         </div>
       </aside>
@@ -294,31 +352,31 @@ export default function Network() {
 
         {/* TABLE HEADERS */}
         <div className="grid grid-cols-[1.5fr_1fr_1.5fr] md:grid-cols-[0.8fr_1.5fr_0.8fr_1.2fr_1.2fr_1.5fr] gap-4 px-4 text-xs font-bold text-white/50 tracking-wider mb-[-10px] select-none">
-          <div onClick={() => handleSort("nodeId")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+          <button type="button" onClick={() => handleSort("nodeId")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Node ID {sortConfig.key === "nodeId" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort(activeTab === "nodes" ? "node" : "cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort(activeTab === "nodes" ? "node" : "cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Name {sortConfig.key === (activeTab === "nodes" ? "node" : "cluster") && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("type")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("type")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Type {sortConfig.key === "type" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("cluster")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("cluster")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("subnetMask")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group">
+          </button>
+          <button type="button" onClick={() => handleSort("subnetMask")} className="hidden md:flex cursor-pointer hover:text-white items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             Subnet Mask {sortConfig.key === "subnetMask" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
-          <div onClick={() => handleSort("ipAddress")} className="text-right md:text-left cursor-pointer hover:text-white flex items-center gap-1 group justify-end md:justify-start">
+          </button>
+          <button type="button" onClick={() => handleSort("ipAddress")} className="text-right md:text-left cursor-pointer hover:text-white flex items-center gap-1 group justify-end md:justify-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
             IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-          </div>
+          </button>
         </div>
 
         {/* TABLE CONTENT */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {activeTab === "nodes" ? (
             <div className="flex flex-col gap-2">
-              {filteredData.nodes.length === 0 && <div className="text-white/30 text-center py-10">No nodes found.</div>}
+              {filteredData.nodes.length === 0 && <div className="text-white/70 text-center py-10">{nodes.length === 0 ? <>No nodes recorded yet. <Link to="/nodes" className="text-[#A8C9AD] underline">Go to nodes</Link></> : "No nodes match your filters."}</div>}
               {filteredData.nodes.map(n => (
                 <NetworkRow
                   key={n.id}
@@ -335,7 +393,7 @@ export default function Network() {
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {filteredData.clusters.length === 0 && <div className="text-white/30 text-center py-10">No clusters found.</div>}
+              {filteredData.clusters.length === 0 && <div className="text-white/70 text-center py-10">{clusters.length === 0 ? <>No clusters recorded yet. <Link to="/clusters" className="text-[#A8C9AD] underline">Create cluster</Link></> : "No clusters match your filters."}</div>}
               {filteredData.clusters.map(c => (
                 <NetworkRow
                   key={c.id}
@@ -388,7 +446,7 @@ function NetworkRow({ name, nodeId, type, ip, subnetMask, cluster, clusterColor,
         </div>
         {/* Type */}
         <div>
-          <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90 w-fit">{type}</div>
+          <div className="px-1.5 py-0.5 rounded bg-white/10 text-xs font-bold text-white/90 w-fit">{type}</div>
         </div>
         {/* Cluster */}
         <div className="text-xs text-white/50">{cluster}</div>
@@ -408,13 +466,13 @@ function NetworkRow({ name, nodeId, type, ip, subnetMask, cluster, clusterColor,
             <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: clusterColor || "#69639E" }}></div>
             <div className="text-sm font-bold text-white">{name}</div>
           </div>
-          <div className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold text-white/90">{type}</div>
+          <div className="px-1.5 py-0.5 rounded bg-white/10 text-xs font-bold text-white/90">{type}</div>
         </div>
 
         <div className="flex justify-between items-center border-t border-white/5 pt-2">
           <div className="flex flex-col gap-0.5">
-            <div className="text-[10px] text-white/40 font-mono">{cluster}</div>
-            <div className="text-[9px] text-white/30 font-mono">{nodeId || "—"}</div>
+            <div className="text-xs text-white/60 font-mono">{cluster}</div>
+            <div className="text-xs text-white/60 font-mono">{nodeId || "—"}</div>
           </div>
           <div className={`text-xs font-mono flex items-center gap-2 ${statusColor}`}>
             {ip}

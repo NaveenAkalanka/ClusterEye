@@ -12,42 +12,97 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    function changedOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // Legacy passwords may be removed, but never added or changed.
+    function noPasswordWrite() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['password'])
+        || !request.resource.data.keys().hasAny(['password']);
+    }
+
+    function ownsCluster(clusterId) {
+      return clusterId is string
+        && exists(/databases/$(database)/documents/clusters/$(clusterId))
+        && get(/databases/$(database)/documents/clusters/$(clusterId)).data.userId == request.auth.uid;
+    }
+
+    function ownsNode(nodeRefId) {
+      return nodeRefId is string
+        && exists(/databases/$(database)/documents/nodes/$(nodeRefId))
+        && get(/databases/$(database)/documents/nodes/$(nodeRefId)).data.userId == request.auth.uid;
+    }
+
+    function validDiskCapacity() {
+      return request.resource.data.total is number
+        && request.resource.data.used is number
+        && request.resource.data.total > 0
+        && request.resource.data.used >= 0
+        && request.resource.data.used <= request.resource.data.total;
+    }
+
     // Rules for Clusters
     match /clusters/{clusterId} {
       // Allow creation if the new document's userId matches the auth uid
-      allow create: if isOwner(request.resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId)
+        && request.resource.data.keys().hasAll(['cluster', 'ipAddress', 'subnetMask', 'color'])
+        && request.resource.data.keys().hasOnly(['userId', 'cluster', 'ipAddress', 'subnetMask', 'color', 'nodes', 'disks', 'total', 'used', 'free', 'createdAt', 'updatedAt'])
+        && request.resource.data.cluster is string;
       // Allow read, update, delete if the existing document's userId matches the auth uid
       // For updates, we also ensure the user isn't trying to change the userId to someone else
       allow read, delete: if isOwner(resource.data.userId);
-      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
+        && changedOnly(['cluster', 'ipAddress', 'subnetMask', 'color', 'nodes', 'disks', 'total', 'used', 'free', 'updatedAt']);
     }
 
     // Rules for Nodes
     match /nodes/{nodeId} {
-      allow create: if isOwner(request.resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId)
+        && request.resource.data.keys().hasAll(['nodeId', 'node', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated'])
+        && request.resource.data.keys().hasOnly(['userId', 'nodeId', 'node', 'type', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated', 'username', 'link', 'createdAt', 'updatedAt'])
+        && request.resource.data.allocations is list
+        && request.resource.data.allocated is number
+        && request.resource.data.allocated >= 0
+        && ownsCluster(request.resource.data.clusterId);
       allow read, delete: if isOwner(resource.data.userId);
-      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
+        && changedOnly(['nodeId', 'node', 'type', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated', 'username', 'link', 'updatedAt', 'password'])
+        && noPasswordWrite()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clusterId'])
+          || ownsCluster(request.resource.data.clusterId));
     }
 
     // Rules for Disks
     match /disks/{diskId} {
-      allow create: if isOwner(request.resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId)
+        && request.resource.data.keys().hasAll(['disk', 'cluster', 'clusterId', 'total', 'used'])
+        && request.resource.data.keys().hasOnly(['userId', 'disk', 'model', 'role', 'cluster', 'clusterId', 'total', 'used', 'free', 'nodes', 'createdAt', 'updatedAt'])
+        && ownsCluster(request.resource.data.clusterId)
+        && validDiskCapacity();
       allow read, delete: if isOwner(resource.data.userId);
-      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
+        && changedOnly(['disk', 'model', 'role', 'cluster', 'clusterId', 'total', 'used', 'free', 'nodes', 'updatedAt'])
+        && validDiskCapacity()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clusterId'])
+          || ownsCluster(request.resource.data.clusterId));
     }
 
     // Rules for Containers
     match /containers/{containerId} {
-      allow create: if isOwner(request.resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId)
+        && request.resource.data.keys().hasAll(['containerId', 'name', 'nodeId', 'nodeRefId', 'port'])
+        && request.resource.data.keys().hasOnly(['userId', 'containerId', 'name', 'nodeId', 'nodeRefId', 'port', 'link', 'createdAt', 'updatedAt'])
+        && request.resource.data.port is int
+        && request.resource.data.port > 0
+        && request.resource.data.port <= 65535
+        && ownsNode(request.resource.data.nodeRefId);
       allow read, delete: if isOwner(resource.data.userId);
-      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
-    }
-
-    // Rules for IP Index
-    match /ipIndex/{ipDocs} {
-      allow create: if isOwner(request.resource.data.userId);
-      allow read, delete: if isOwner(resource.data.userId);
-      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId);
+      allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
+        && changedOnly(['containerId', 'name', 'nodeId', 'nodeRefId', 'port', 'link', 'updatedAt', 'password'])
+        && noPasswordWrite()
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['nodeRefId'])
+          || ownsNode(request.resource.data.nodeRefId));
     }
   }
 }

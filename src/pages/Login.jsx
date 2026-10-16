@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Envelope, LockKey, CircleNotch, Warning } from "@phosphor-icons/react";
+import logoUrl from "../assets/ClusterEye.svg";
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -37,9 +38,9 @@ export default function Login({ onLogin }) {
 
         {/* Logo Area */}
         <div className="flex flex-col items-center mb-10">
-          <img src="/ClusterEye.svg" alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
-          <h1 className="text-3xl font-bold text-white tracking-wide">Welcome Back</h1>
-          <p className="text-white/40 text-sm mt-2">Log in to check your cluster status</p>
+          <img src={logoUrl} alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
+          <h1 className="text-3xl font-bold text-white tracking-tight">Welcome back</h1>
+          <p className="text-white/60 text-sm mt-2">Log in to view your infrastructure inventory</p>
         </div>
 
         <form onSubmit={submit} className="space-y-4">
@@ -59,7 +60,7 @@ export default function Login({ onLogin }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/20 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
+              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
             />
           </div>
 
@@ -71,7 +72,7 @@ export default function Login({ onLogin }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/20 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
+              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
             />
           </div>
 

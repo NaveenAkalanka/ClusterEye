@@ -1,5 +1,6 @@
 import React from "react";
 import CustomSelect from "./CustomSelect";
+import useDialogFocus from "./useDialogFocus";
 
 export default function FilterModal({
     onClose,
@@ -19,13 +20,14 @@ export default function FilterModal({
     filterCluster,
     setFilterCluster,
 }) {
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-[#0D100D] rounded-2xl border border-white/10 p-4 md:p-6 w-full max-w-xs animate-scale-in">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Filter records" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#0D100D] rounded-2xl border border-white/10 p-4 md:p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto custom-scrollbar shadow-2xl animate-scaleIn">
                 <h3 className="text-lg font-semibold mb-4 md:mb-6 text-white">Filter</h3>
 
                 <div className="space-y-4 md:space-y-5">
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         {/* Type (Nodes) */}
                         {setFilterType && (
                             <Field label="Type">
@@ -88,19 +90,12 @@ export default function FilterModal({
                     )}
                 </div>
 
-                <div className="flex justify-end gap-2 mt-5">
+                <div className="flex justify-end mt-5">
                     <button
                         onClick={onClose}
-                        className="px-3 py-1.5 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
+                        className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-[#69639E] to-[#A8C9AD] opacity-90 hover:opacity-100 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
                     >
-                        Close
-                    </button>
-
-                    <button
-                        onClick={onClose}
-                        className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-[#69639E] to-[#A8C9AD] opacity-90 hover:opacity-100 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-                    >
-                        Apply
+                        Done
                     </button>
                 </div>
             </div>

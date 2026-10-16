@@ -1,6 +1,7 @@
-import React, { useMemo } from "react";
+import React from "react";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
+import useDialogFocus from "./useDialogFocus";
 
 export default function AddNodeModal({
     onClose,
@@ -25,9 +26,10 @@ export default function AddNodeModal({
     error,
     saving,
 }) {
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
     return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-4 md:p-6 w-full max-w-lg">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add node" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-4 md:p-6 w-full max-w-lg max-h-[90dvh] overflow-y-auto custom-scrollbar shadow-2xl">
                 <div className="flex justify-between items-center mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
                     <h3 className="text-lg font-semibold text-white">Add New Node</h3>
                     <button
@@ -39,10 +41,11 @@ export default function AddNodeModal({
                 </div>
 
                 <form onSubmit={handleCreate} className="space-y-4 md:space-y-5">
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Node ID">
                             <input
                                 type="text"
+                                aria-label="Node ID"
                                 placeholder="Unique ID"
                                 value={nodeId}
                                 onChange={(e) => setNodeId(e.target.value)}
@@ -54,6 +57,7 @@ export default function AddNodeModal({
                         <Field label="Node Name">
                             <input
                                 type="text"
+                                aria-label="Node name"
                                 placeholder="Node name"
                                 value={nodeName}
                                 onChange={(e) => setNodeName(e.target.value)}
@@ -63,7 +67,7 @@ export default function AddNodeModal({
                         </Field>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Type">
                             <CustomSelect
                                 value={type}
@@ -95,6 +99,7 @@ export default function AddNodeModal({
                     <Field label="IP Address">
                         <input
                             type="text"
+                            aria-label="IP address"
                             placeholder="IPv4 address"
                             value={ipAddress}
                             onChange={(e) => setIpAddress(e.target.value)}
@@ -141,10 +146,11 @@ export default function AddNodeModal({
                                                 />
                                             </div>
 
-                                            <div className="w-32">
+                                            <div className="w-full sm:w-32">
                                                 <NumberStepper
                                                     value={r.gb}
                                                     onChange={(val) => changeAlloc(i, "gb", val)}
+                                                    label="Allocated GB"
                                                     min={0}
                                                 />
                                             </div>
@@ -152,7 +158,7 @@ export default function AddNodeModal({
                                             <button
                                                 type="button"
                                                 onClick={() => removeAlloc(i)}
-                                                className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs transition-all cursor-pointer"
+                                                className="w-full sm:w-auto px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs transition-all cursor-pointer"
                                             >
                                                 Remove
                                             </button>

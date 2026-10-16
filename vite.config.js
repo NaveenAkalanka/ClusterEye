@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Relative assets keep production builds working at a domain root or subpath.
+  base: './',
   plugins: [
     react(),
     tailwindcss(),

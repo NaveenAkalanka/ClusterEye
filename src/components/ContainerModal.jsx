@@ -3,11 +3,13 @@ import { updateDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
-import { Eye, EyeSlash, XCircle, ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react";
+import { XCircle, ArrowSquareOut, PencilSimple, Trash } from "@phosphor-icons/react";
+import useDialogFocus from "./useDialogFocus";
 
 export default function ContainerModal({ onClose, container, nodes, containers }) {
     // Mode: "view", "edit", "delete"
     const [mode, setMode] = useState("view");
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose, true, mode);
 
     // Local State for Editing
     const [containerId, setContainerId] = useState(container.containerId || "");
@@ -15,8 +17,6 @@ export default function ContainerModal({ onClose, container, nodes, containers }
     const [nodeId, setNodeId] = useState(container.nodeId);
     const [port, setPort] = useState(container.port);
     const [link, setLink] = useState(container.link || "");
-    const [password, setPassword] = useState(container.password || "");
-    const [showPassword, setShowPassword] = useState(false);
 
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
@@ -31,7 +31,6 @@ export default function ContainerModal({ onClose, container, nodes, containers }
             setNodeId(container.nodeId);
             setPort(container.port);
             setLink(container.link || "");
-            setPassword(container.password || "");
         }
     }, [mode, container]);
 
@@ -59,6 +58,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
         };
 
         const selectedNode = nodes.find(n => n.nodeId === nodeId);
+        if (!selectedNode) return setError("Selected node no longer exists");
         const selectedSubnet = selectedNode ? getSubnet(selectedNode.ipAddress) : "";
 
         // Check Port uniqueness (excluding self) across the SUBNET
@@ -66,7 +66,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
             if (c.id === container.id) return false; // Skip self
             if (c.port !== parseInt(port)) return false; // Port mismatch, irrelevant
 
-            const cNode = nodes.find(n => n.nodeId === c.nodeId);
+            const cNode = nodes.find(n => c.nodeRefId ? n.id === c.nodeRefId : n.nodeId === c.nodeId);
             if (!cNode) return false;
 
             const cSubnet = getSubnet(cNode.ipAddress);
@@ -84,9 +84,9 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                 containerId: containerId.trim(),
                 name: name.trim(),
                 nodeId,
+                nodeRefId: selectedNode.id,
                 port: parseInt(port) || port,
-                link: link.trim(),
-                password: password.trim()
+                link: link.trim()
             });
             setMode("view");
         } catch (err) {
@@ -112,8 +112,8 @@ export default function ContainerModal({ onClose, container, nodes, containers }
     const isEdit = mode === "edit";
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0D100D] border border-white/10 p-8 rounded-2xl w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Container ${container.name}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0D100D] border border-white/10 p-4 md:p-6 rounded-2xl w-full max-w-lg shadow-2xl relative max-h-[90dvh] overflow-y-auto custom-scrollbar">
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
@@ -186,7 +186,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                             />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {/* Node */}
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-xs font-bold text-white/40 tracking-wider">Host Node</label>
@@ -194,8 +194,8 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                                     value={nodeId}
                                     onChange={setNodeId}
                                     options={validNodes.map(n => ({ value: n.nodeId, label: n.node }))}
-                                    disabled={!isEdit && "true"} // Custom disabled handled by passing a string or boolean depending on implement, assuming boolean is fine but string "true" in prop types check
-                                    className={`${!isEdit && "pointer-events-none opacity-100"}`} // visual tweak
+                                    disabled={!isEdit}
+                                    className={`${!isEdit && "pointer-events-none opacity-100"}`}
                                 />
                             </div>
 
@@ -229,6 +229,7 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                                     <button
                                         type="button"
                                         onClick={() => window.open(link.startsWith('http') ? link : `http://${link}`, '_blank')}
+                                        aria-label="Open container link"
                                         className="absolute right-0 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors cursor-pointer"
                                     >
                                         <ArrowSquareOut size={20} />
@@ -236,31 +237,6 @@ export default function ContainerModal({ onClose, container, nodes, containers }
                                 )}
                             </div>
                         </div>
-
-                        {/* Password */}
-                        <div className="flex flex-col gap-1.5">
-                            <label className="text-xs font-bold text-white/40 tracking-wider">Password</label>
-                            <div className="relative">
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    disabled={!isEdit}
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder={isEdit ? "••••••" : "—"}
-                                    className={`input pr-10 ${!isEdit && "border-transparent bg-transparent pl-0"}`}
-                                />
-                                {isEdit && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer"
-                                    >
-                                        {showPassword ? <EyeSlash size={20} /> : <Eye size={20} />}
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
 
                         {/* Action Buttons */}
                         <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-white/5">

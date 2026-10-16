@@ -9,8 +9,7 @@ import {
   addDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-import { db, auth } from "../firebaseConfig";
+import { db } from "../firebaseConfig";
 import {
   MagnifyingGlass,
   Funnel,
@@ -27,10 +26,14 @@ import {
 import AddDiskModal from "../components/AddDiskModal";
 import DiskModal from "../components/DiskModal";
 import FilterModal from "../components/FilterModal";
+import LoadError from "../components/LoadError";
+import LoadingState from "../components/LoadingState";
+import { Link } from "react-router-dom";
 
-export default function Disks() {
-  const [uid, setUid] = useState(null);
+export default function Disks({ uid }) {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
   // data
   const [clusters, setClusters] = useState([]);
@@ -59,14 +62,9 @@ export default function Disks() {
   const [filterRole, setFilterRole] = useState("");
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
-  /* ----------------------------- AUTH ----------------------------- */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUid(u ? u.uid : null));
-    return () => unsub();
-  }, []);
-
   /* ----------------------------- LOAD DATA ----------------------------- */
   useEffect(() => {
+    setLoadError(false);
     if (!uid) {
       setClusters([]);
       setDisks([]);
@@ -78,7 +76,8 @@ export default function Disks() {
 
     const unsubClusters = onSnapshot(
       query(collection(db, "clusters"), where("userId", "==", uid), orderBy("cluster")),
-      (snap) => setClusters(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      (snap) => setClusters(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError(true)
     );
 
     const unsubDisks = onSnapshot(
@@ -89,6 +88,7 @@ export default function Disks() {
       },
       (e) => {
         console.error(e);
+        setLoadError(true);
         setLoading(false);
       }
     );
@@ -96,7 +96,8 @@ export default function Disks() {
     // Need nodes to check allocations
     const unsubNodes = onSnapshot(
       query(collection(db, "nodes"), where("userId", "==", uid)),
-      (snap) => setNodes(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      (snap) => setNodes(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      () => setLoadError(true)
     );
 
     return () => {
@@ -104,7 +105,7 @@ export default function Disks() {
       unsubDisks();
       unsubNodes();
     };
-  }, [uid]);
+  }, [uid, retryKey]);
 
   /* ----------------------------- CREATE ----------------------------- */
   async function handleCreate() {
@@ -117,10 +118,12 @@ export default function Disks() {
 
     if (!name) return setCreateError("Enter a disk name.");
     if (!cl) return setCreateError("Choose a cluster.");
+    const selectedCluster = clusters.find((item) => item.cluster === cl);
+    if (!selectedCluster) return setCreateError("Selected cluster no longer exists.");
     if (!Number.isFinite(gb) || gb <= 0) return setCreateError("Enter a valid total size in GB.");
 
     // Dupe check
-    if (disks.some(d => d.disk.toLowerCase() === name.toLowerCase())) {
+    if (disks.some(d => (d.disk || "").toLowerCase() === name.toLowerCase())) {
       return setCreateError(`Disk "${name}" already exists.`);
     }
 
@@ -133,6 +136,7 @@ export default function Disks() {
         model,
         role,
         cluster: cl,
+        clusterId: selectedCluster.id,
         total: totalBytes,
         used: 0,
         free: totalBytes,
@@ -157,14 +161,14 @@ export default function Disks() {
 
   /* ----------------------------- FILTERS ----------------------------- */
   const filteredDisks = useMemo(() => {
-    let res = disks;
+    let res = [...disks];
 
     if (search.trim()) {
       const q = search.toLowerCase();
       res = res.filter(
         (d) =>
-          d.disk.toLowerCase().includes(q) ||
-          d.cluster.toLowerCase().includes(q)
+          (d.disk || "").toLowerCase().includes(q) ||
+          (d.cluster || "").toLowerCase().includes(q)
       );
     }
 
@@ -233,6 +237,8 @@ export default function Disks() {
   }, [disks]);
 
   /* ----------------------------- UI ----------------------------- */
+  if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
+
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
 
@@ -246,6 +252,7 @@ export default function Disks() {
             <input
               type="text"
               placeholder="Search Disks..."
+              aria-label="Search disks"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
@@ -264,12 +271,14 @@ export default function Disks() {
           </button>
           <button
             onClick={() => setFilterOpen(true)}
+            aria-label="Filter disks"
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <Funnel size={18} />
           </button>
           <button
             onClick={clearFilters}
+            aria-label="Clear disk filters"
             className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
           >
             <XCircle size={18} />
@@ -288,39 +297,40 @@ export default function Disks() {
       <section className="flex-1 bg-[#0D100D] rounded-3xl border border-white/5 flex flex-col overflow-hidden relative shadow-2xl">
         <div className="flex-1 overflow-auto p-4 content-scrollbar">
           {loading ? (
-            <div className="flex h-full items-center justify-center text-white/30 text-sm animate-pulse">Loading disks...</div>
+            <LoadingState label="Loading disks" rows={6} />
           ) : filteredDisks.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-white/30 text-sm">
-              {search ? "No disks match your search." : "No disks found. Add one to get started."}
+            <div className="flex h-full flex-col gap-3 items-center justify-center text-white/70 text-sm">
+              <p>{search || filterCluster || filterModel || filterRole ? "No disks match your filters." : clusters.length === 0 ? "Create a cluster before adding disks." : "No disks yet. Add one to define storage capacity."}</p>
+              {!search && !filterCluster && !filterModel && !filterRole && (clusters.length === 0 ? <Link to="/clusters" className="text-[#A8C9AD] underline">Create cluster</Link> : <button type="button" onClick={() => setAddOpen(true)} className="text-[#A8C9AD] underline">Add disk</button>)}
             </div>
           ) : (
             <div className="space-y-2">
               {/* Header Row (Desktop) */}
               <div className="hidden md:grid grid-cols-[1.5fr_1fr_1fr_1fr_0.5fr_1fr_1fr_1fr_2fr] gap-4 px-6 py-2 text-xs font-bold text-white/50 tracking-wider items-center select-none">
-                <div onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                <button type="button" onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Disk Name {sortConfig.key === "disk" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("model")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("model")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Model {sortConfig.key === "model" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("role")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("role")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Role {sortConfig.key === "role" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Nodes {sortConfig.key === "nodes" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Total {sortConfig.key === "total" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Used {sortConfig.key === "used" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
-                <div onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group">
+                </button>
+                <button type="button" onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
                   Free {sortConfig.key === "free" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </div>
+                </button>
                 <div className="text-left cursor-default">Usage</div>
               </div>
 
@@ -361,13 +371,13 @@ export default function Disks() {
                       <div className="text-xs font-mono text-white/50 w-8 text-right">
                         {Math.round((d.used / d.total) * 100) || 0}%
                       </div>
-                      <div
+                      <button type="button"
                         onClick={() => setViewDisk(d)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-white/50 hover:text-white cursor-pointer"
-                        title="View Disk"
+                        className="text-[#A8C9AD] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded"
+                        aria-label={`View ${d.disk}`}
                       >
                         <CaretCircleRight size={20} weight="fill" />
-                      </div>
+                      </button>
                     </div>
                   </div>
 
@@ -380,21 +390,18 @@ export default function Disks() {
                         </div>
                         <div>
                           <div className="font-bold text-sm">{d.disk}</div>
-                          <div className="text-[10px] text-white/50 flex gap-2">
+                          <div className="text-xs text-white/50 flex gap-2">
                             <span>{d.model}</span>
                             <span>•</span>
                             <span>{d.role}</span>
                           </div>
                         </div>
                       </div>
-                      <CaretCircleRight
-                        onClick={() => setViewDisk(d)}
-                        size={24}
-                        weight="fill"
-                        className="text-white active:scale-95 transition-all cursor-pointer"
-                      />
+                      <button type="button" onClick={() => setViewDisk(d)} aria-label={`View ${d.disk}`} className="text-[#A8C9AD] p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded">
+                        <CaretCircleRight size={24} weight="fill" />
+                      </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-sm text-white/70">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-sm text-white/70">
                       <div className="flex items-center gap-2">
                         Cluster:
                         <span className="text-white flex items-center gap-1.5">

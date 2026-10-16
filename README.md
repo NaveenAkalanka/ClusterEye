@@ -5,23 +5,25 @@
 </div>
 
 
-> **Advanced Cluster Monitoring & Management Dashboard**
+> **Cluster Inventory & Management Dashboard**
 
-**ClusterEye** is a modern, high-performance dashboard designed for visualizing and managing hybrid infrastructure. It monitoring ProxMox clusters, LXC containers, VMs, physical disks, and network topology in a single, unified interface. Built with a focus on aesthetics, strict typography, and real-time data synchronization.
+**ClusterEye** is a dashboard for recording and organizing clusters, VM/LXC nodes, disks, Docker containers, and their IP addresses. Firestore synchronizes saved inventory changes between sessions. The current version does not probe infrastructure or report live host and container health.
 
 ---
 
 ## 🚀 Key Features
 
-*   **Real-time Dashboard:** Live stats for Nodes, Clusters, Disks, and Docker containers synchronized via Firebase Firestore.
-*   **Network Topology Map:** Visual subnet matrix (IpMap) showing active hosts and available IPs in real-time.
+*   **Synchronized Dashboard:** Counts and storage totals from inventory records update through Firebase Firestore.
+*   **IP Inventory Map:** A `/24` matrix shows recorded node addresses; unrecorded cells are not verified to be available.
 *   **Asset Management:**
-    *   **Nodes:** Track VM/LXC resource allocation and status.
+    *   **Nodes:** Record VM/LXC addresses and disk allocations.
     *   **Disks:** Visual utilization bars and storage metrics.
     *   **Clusters:** Multi-cluster support with color-coded organization.
-    *   **Docker:** Container monitoring with port mapping and status indicators.
-*   **Secure Authentication:** Role-based access and data isolation using Firebase Auth & Security Rules.
-*   **Responsive Design:** Fully optimized for Desktop, Tablet, and Mobile with adaptive layouts.
+    *   **Docker:** Record containers, host nodes, and ports.
+*   **Authentication:** Per-user data access using Firebase Auth & Security Rules. There are no application roles.
+*   **Responsive Layouts:** Desktop and mobile list views with adaptive navigation.
+
+> **Credential note:** Node and container password fields are currently stored as Firestore document data. Do not use them for production secrets until dedicated secret storage is added.
 
 ## 🛠️ Tech Stack
 

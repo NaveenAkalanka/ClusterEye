@@ -2,20 +2,19 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   doc,
-  updateDoc,
-  deleteDoc,
   getDocs,
   query,
   collection,
   where,
   serverTimestamp,
-  writeBatch,
-  increment,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { Eye, EyeSlash, ArrowSquareOut, XCircle, Warning } from "@phosphor-icons/react";
+import { ArrowSquareOut, XCircle, Warning } from "@phosphor-icons/react";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
+import { isIpInSubnet } from "../utils/network";
+import useDialogFocus from "./useDialogFocus";
 
 export default function NodeModal({ node, onClose, clusters, disks, containers, uid }) {
   const [editMode, setEditMode] = useState(false);
@@ -24,11 +23,15 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
 
-  const [showPass, setShowPass] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [clusterLocked, setClusterLocked] = useState(false);
   const [showLockWarning, setShowLockWarning] = useState(false);
+  const { dialogRef, onDialogKeyDown } = useDialogFocus(
+    () => confirmDiscard ? setConfirmDiscard(false) : handleCloseRequest(),
+    true,
+    confirmDiscard
+  );
 
   // Check for unsaved changes
   const isDirty = useMemo(() => {
@@ -47,9 +50,9 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   // Filter disks based on cluster
   const clusterDisks = useMemo(() => {
     return Array.isArray(disks)
-      ? disks.filter((d) => d.cluster === local.cluster)
+      ? disks.filter((d) => local.clusterId && d.clusterId ? d.clusterId === local.clusterId : d.cluster === local.cluster)
       : [];
-  }, [disks, local.cluster]);
+  }, [disks, local.cluster, local.clusterId]);
 
   // IP validation
   function isValidIP(ip) {
@@ -59,30 +62,20 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
     );
   }
 
-  function isSameSubnet(nodeIP, clusterIP) {
-    if (!nodeIP || !clusterIP) return false;
-    const a = nodeIP.split(".").slice(0, 3).join(".");
-    const b = clusterIP.split(".").slice(0, 3).join(".");
-    return a === b;
-  }
-
   // Subnet warning when editing
   useEffect(() => {
     if (!editMode) return;
     if (!local.cluster) return;
-    const cl = clusters.find((c) => c.cluster === local.cluster);
+    const cl = clusters.find((c) => c.id === local.clusterId) || clusters.find((c) => c.cluster === local.cluster);
     if (!cl?.ipAddress) return;
-    if (!isSameSubnet(local.ipAddress, cl.ipAddress)) {
+    if (!isIpInSubnet(local.ipAddress, cl.ipAddress, cl.subnetMask || "255.255.255.0")) {
       setInfo(
-        `Cluster and IP subnet mismatch. IP should match ${cl.ipAddress
-          .split(".")
-          .slice(0, 3)
-          .join(".")}.x`
+        `IP must be in the cluster subnet (${cl.ipAddress}, mask ${cl.subnetMask || "255.255.255.0"}).`
       );
     } else {
       setInfo("");
     }
-  }, [local.cluster, local.ipAddress, editMode]);
+  }, [local.cluster, local.clusterId, local.ipAddress, editMode, clusters]);
 
   // Lock cluster if allocations exist
   useEffect(() => {
@@ -159,11 +152,11 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
     const clusterCollision = clusters.some(c => c.ipAddress === local.ipAddress.trim());
     if (clusterCollision) return setError("IP Address matches a Cluster IP.");
 
-    const cl = clusters.find((c) => c.cluster === local.cluster);
+    const cl = clusters.find((c) => c.id === local.clusterId) || clusters.find((c) => c.cluster === local.cluster);
     if (!cl?.ipAddress)
       return setError("Selected cluster missing IP base address.");
-    if (!isSameSubnet(local.ipAddress, cl.ipAddress))
-      return setError(`IP not in same subnet as cluster (${cl.ipAddress}).`);
+    if (!isIpInSubnet(local.ipAddress, cl.ipAddress, cl.subnetMask || "255.255.255.0"))
+      return setError(`IP must be in the cluster subnet (${cl.ipAddress}, mask ${cl.subnetMask || "255.255.255.0"}).`);
 
     // calculate total allocated
     const totalAllocatedBytes = (local.allocations || []).reduce((sum, a) => {
@@ -173,11 +166,11 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
 
     // validate allocations vs available
     for (const a of local.allocations || []) {
-      const d = disks.find((x) => x.disk === a.disk);
+      const d = disks.find((x) => x.id === a.diskId) || disks.find((x) => x.disk === a.disk);
       if (!d) return setError(`Disk ${a.disk} no longer exists.`);
-      const totalGB = (d.total || 0) / 1_000_000_000;
-      const usedGB = (d.used || 0) / 1_000_000_000;
-      const oldAlloc = (node.allocations || []).find((x) => x.disk === a.disk);
+      if (Number(a.allocatedGB) <= 0 || !Number.isFinite(Number(a.allocatedGB))) return setError("Allocation must be greater than zero.");
+      if ((local.allocations || []).filter((item) => (item.diskId || item.disk) === (a.diskId || a.disk)).length > 1) return setError("Choose each disk only once.");
+      const oldAlloc = (node.allocations || []).find((x) => x.diskId ? x.diskId === d.id : x.disk === d.disk);
       const prevGB = oldAlloc ? Number(oldAlloc.allocatedGB) : 0;
       const availableGB = (d.total || 0) / 1_000_000_000 - (d.used || 0) / 1_000_000_000 + prevGB;
       if (Number(a.allocatedGB) > availableGB)
@@ -190,52 +183,63 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
     const nodeRef = doc(db, "nodes", local.id);
     setSaving(true);
     try {
-      const batch = writeBatch(db);
+      const nextAllocations = (local.allocations || []).map((a) => {
+        const selectedDisk = disks.find((d) => d.id === a.diskId) || disks.find((d) => d.disk === a.disk);
+        return { diskId: selectedDisk.id, disk: selectedDisk.disk, allocatedGB: Number(a.allocatedGB) };
+      });
+      const linked = local.nodeId.trim() !== node.nodeId
+        ? (containers || []).filter((item) => item.nodeRefId ? item.nodeRefId === node.id : item.nodeId === node.nodeId)
+        : [];
+      if (linked.length + nextAllocations.length > 450) throw new Error("Too many linked records to rename in one operation.");
 
-      // Update Node Doc
-      batch.update(nodeRef, {
+      await runTransaction(db, async (transaction) => {
+        const currentSnap = await transaction.get(nodeRef);
+        const current = currentSnap.data();
+        if (!current || current.userId !== uid) throw new Error("Node no longer exists.");
+        if (JSON.stringify(current.allocations || []) !== JSON.stringify(node.allocations || [])) {
+          throw new Error("Node allocations changed elsewhere. Close and reopen this node.");
+        }
+        const deltas = new Map();
+        const addDelta = (allocation, direction) => {
+          const disk = disks.find((item) => item.id === allocation.diskId) || disks.find((item) => item.disk === allocation.disk);
+          if (!disk) throw new Error(`Disk ${allocation.disk} no longer exists.`);
+          const amount = Number(allocation.allocatedGB) * 1_000_000_000 * direction;
+          deltas.set(disk.id, (deltas.get(disk.id) || 0) + amount);
+        };
+        (current.allocations || []).forEach((a) => addDelta(a, -1));
+        nextAllocations.forEach((a) => addDelta(a, 1));
+        const diskEntries = [...deltas.entries()].map(([id, delta]) => ({ ref: doc(db, "disks", id), delta }));
+        const diskSnaps = await Promise.all(diskEntries.map(({ ref }) => transaction.get(ref)));
+
+        diskEntries.forEach(({ ref, delta }, index) => {
+          const data = diskSnaps[index].data();
+          if (!data || data.userId !== uid) throw new Error("An allocated disk is no longer available.");
+          const used = Number(data.used || 0) + delta;
+          if (used < 0 || used > Number(data.total || 0)) throw new Error(`${data.disk} has insufficient capacity or invalid usage.`);
+          transaction.update(ref, { used, free: Number(data.total) - used });
+        });
+
+        transaction.update(nodeRef, {
         nodeId: local.nodeId.trim(),
         node: local.node.trim(),
         type: local.type,
         cluster: local.cluster,
+        clusterId: cl.id,
         ipAddress: local.ipAddress.trim(),
         username: local.username || "",
-        password: local.password || "",
         link: local.link || "",
-        allocations: local.allocations || [],
+        allocations: nextAllocations,
         allocated: totalAllocatedBytes,
         updatedAt: serverTimestamp(),
+        });
+        linked.forEach((item) => transaction.update(doc(db, "containers", item.id), { nodeId: local.nodeId.trim(), nodeRefId: node.id }));
       });
-
-      // Update Disk Usage
-      // 1. Revert old allocations
-      for (const oldA of (node.allocations || [])) {
-        const diskObj = disks.find(d => d.disk === oldA.disk);
-        if (diskObj) {
-          const diskRef = doc(db, "disks", diskObj.id);
-          const bytesToRemove = (Number(oldA.allocatedGB) || 0) * 1_000_000_000;
-          // Decrement by adding negative value
-          batch.update(diskRef, { used: increment(-bytesToRemove) });
-        }
-      }
-
-      // 2. Apply new allocations
-      for (const newA of (local.allocations || [])) {
-        const diskObj = disks.find(d => d.disk === newA.disk);
-        if (diskObj) {
-          const diskRef = doc(db, "disks", diskObj.id);
-          const bytesToAdd = (Number(newA.allocatedGB) || 0) * 1_000_000_000;
-          batch.update(diskRef, { used: increment(bytesToAdd) });
-        }
-      }
-
-      await batch.commit();
 
       setEditMode(false);
       setInfo("✅ Node updated successfully.");
     } catch (err) {
       console.error(err);
-      setError("Failed to update node.");
+      setError(err.message || "Failed to update node.");
     } finally {
       setSaving(false);
     }
@@ -244,7 +248,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   /* ----------------------- DELETE ----------------------- */
   function handleDelete() {
     // Check for linked containers
-    const linkedContainers = (containers || []).filter(c => c.nodeId === node.nodeId);
+    const linkedContainers = (containers || []).filter(c => c.nodeRefId ? c.nodeRefId === node.id : c.nodeId === node.nodeId);
     if (linkedContainers.length > 0) {
       setError(`Cannot delete node. It has ${linkedContainers.length} active container(s).`);
       return;
@@ -254,40 +258,37 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
 
   async function executeDelete() {
     setError("");
+    setSaving(true);
     try {
-      const batch = writeBatch(db);
-
-      // 1. Delete Node
       const nodeRef = doc(db, "nodes", local.id);
-      batch.delete(nodeRef);
-
-      // 2. Decrement Disk Usage (Use 'node' not 'local' to ensure we revert persisted state)
-      for (const a of (node.allocations || [])) {
-        const diskObj = disks.find(d => d.disk === a.disk);
-        if (diskObj) {
-          const diskRef = doc(db, "disks", diskObj.id);
-          const bytesToRemove = (Number(a.allocatedGB) || 0) * 1_000_000_000;
-          batch.update(diskRef, { used: increment(-bytesToRemove) });
+      await runTransaction(db, async (transaction) => {
+        const currentSnap = await transaction.get(nodeRef);
+        const current = currentSnap.data();
+        if (!current || current.userId !== uid) throw new Error("Node no longer exists.");
+        const deltas = new Map();
+        for (const a of current.allocations || []) {
+          const disk = disks.find((item) => item.id === a.diskId) || disks.find((item) => item.disk === a.disk);
+          if (!disk) throw new Error(`Disk ${a.disk} no longer exists.`);
+          deltas.set(disk.id, (deltas.get(disk.id) || 0) + Number(a.allocatedGB) * 1_000_000_000);
         }
-      }
-
-      // 3. Delete IP Index docs
-      const ipQuery = query(
-        collection(db, "ipIndex"),
-        where("userId", "==", uid),
-        where("nodeId", "==", local.id)
-      );
-      const ipSnap = await getDocs(ipQuery);
-      for (const s of ipSnap.docs) {
-        batch.delete(s.ref);
-      }
-
-      await batch.commit();
+        const entries = [...deltas.entries()].map(([id, bytes]) => ({ ref: doc(db, "disks", id), bytes }));
+        const diskSnaps = await Promise.all(entries.map(({ ref }) => transaction.get(ref)));
+        entries.forEach(({ ref, bytes }, index) => {
+          const data = diskSnaps[index].data();
+          if (!data || data.userId !== uid) throw new Error("An allocated disk is no longer available.");
+          const used = Number(data.used || 0) - bytes;
+          if (used < 0) throw new Error(`${data.disk} has invalid usage.`);
+          transaction.update(ref, { used, free: Number(data.total) - used });
+        });
+        transaction.delete(nodeRef);
+      });
 
       onClose();
     } catch (err) {
       console.error(err);
-      setError("Delete failed.");
+      setError(err.message || "Delete failed.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -316,8 +317,8 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
 
   /* ----------------------- RENDER ----------------------- */
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90vh]">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Node ${node.node}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90dvh] custom-scrollbar shadow-2xl">
         <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
           <h3 className="text-lg font-semibold">
             {confirmDelete
@@ -350,7 +351,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
           {!confirmDelete && !confirmDiscard ? (
             // Wrap form content
             <div className="space-y-4 md:space-y-5">
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <Field label="Node ID">
                   <input
                     disabled={!editMode}
@@ -369,7 +370,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                 </Field>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <Field label="Type">
                   <CustomSelect
                     value={local.type}
@@ -391,9 +392,9 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                     <CustomSelect
                       value={local.cluster}
                       onChange={(val) => {
-                        const upd = { ...local, cluster: val };
+                        const upd = { ...local, cluster: val, clusterId: clusters.find((c) => c.cluster === val)?.id || "" };
                         // Autofill IP
-                        const cObj = clusters.find((c) => c.cluster === val);
+                            const cObj = clusters.find((c) => c.cluster === val);
                         if (cObj && cObj.ipAddress) {
                           const prefix =
                             cObj.ipAddress.split(".").slice(0, 3).join(".") + ".";
@@ -425,7 +426,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
 
               <hr className="border-white/10" />
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
                 <Field label="Username">
                   <input
                     disabled={!editMode}
@@ -435,26 +436,6 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                   />
                 </Field>
 
-                <Field label="Password">
-                  <div className="relative">
-                    <input
-                      type={showPass ? "text" : "password"}
-                      disabled={!editMode}
-                      value={local.password || ""}
-                      onChange={(e) =>
-                        setLocal({ ...local, password: e.target.value })
-                      }
-                      className="input pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPass((v) => !v)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors cursor-pointer"
-                    >
-                      {showPass ? <EyeSlash size={20} /> : <Eye size={20} />}
-                    </button>
-                  </div>
-                </Field>
               </div>
 
               <Field label="Link">
@@ -475,6 +456,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                         }
                         window.open(url, "_blank", "noopener,noreferrer");
                       }}
+                      aria-label="Open node link"
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors cursor-pointer"
                       title="Open in new tab"
                     >
@@ -507,13 +489,19 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                   <div key={i} className="flex flex-wrap gap-2 items-center mt-1">
                     <div className="flex-1 min-w-[200px]">
                       <CustomSelect
-                        value={a.disk}
-                        onChange={(val) => changeAlloc(i, "disk", val)}
+                        value={a.diskId || clusterDisks.find((d) => d.disk === a.disk)?.id || ""}
+                        onChange={(val) => {
+                          const selected = clusterDisks.find((d) => d.id === val);
+                          setLocal((prev) => ({
+                            ...prev,
+                            allocations: prev.allocations.map((item, index) => index === i ? { ...item, diskId: val, disk: selected?.disk || "" } : item),
+                          }));
+                        }}
                         options={clusterDisks.map((d) => {
                           const freeGB =
                             ((d.total || 0) - (d.used || 0)) / 1_000_000_000;
                           return {
-                            value: d.disk,
+                            value: d.id,
                             label: d.disk,
                             subLabel: `${freeGB.toFixed(1)} GB free`,
                           };
@@ -522,7 +510,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                         disabled={!editMode}
                       />
                     </div>
-                    <div className="w-32">
+                    <div className="w-full sm:w-32">
                       <NumberStepper
                         value={a.allocatedGB}
                         onChange={(val) => changeAlloc(i, "allocatedGB", val)}
@@ -533,7 +521,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                     {editMode && (
                       <button
                         onClick={() => removeAlloc(i)}
-                        className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all cursor-pointer"
+                        className="w-full sm:w-auto px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all cursor-pointer"
                       >
                         Remove
                       </button>

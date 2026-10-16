@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { updateProfile, verifyBeforeUpdateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser } from "firebase/auth";
-import { collection, query, where, getDocs, writeBatch, doc } from "firebase/firestore";
-import { auth, db } from "../firebaseConfig";
+import { collection, query, where, getDocs, writeBatch, limit, deleteField } from "firebase/firestore";
+import { db } from "../firebaseConfig";
 import { User, Envelope, LockKey, FloppyDisk, Warning, Trash, CheckCircle } from "@phosphor-icons/react";
+import useDialogFocus from "../components/useDialogFocus";
 
-export default function Profile() {
-    const user = auth.currentUser;
+export default function Profile({ user }) {
     const [name, setName] = useState(user?.displayName || "");
     const [email, setEmail] = useState(user?.email || "");
     const [password, setPassword] = useState("");
@@ -18,6 +18,13 @@ export default function Profile() {
 
     // Delete Confirmation
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
+    const [purgeConfirm, setPurgeConfirm] = useState(false);
+    const [deleteProgress, setDeleteProgress] = useState(0);
+    const { dialogRef: messageDialogRef, onDialogKeyDown: onMessageDialogKeyDown } = useDialogFocus(
+        () => setMessage({ type: "", text: "" }),
+        Boolean(message.text),
+        message.text
+    );
 
     useEffect(() => {
         if (user) {
@@ -107,27 +114,25 @@ export default function Profile() {
         if (!currentPassword) return setReauthMode("delete");
 
         setLoading(true);
-        setMessage({ type: "", text: "Deleting account and data..." });
+        setMessage({ type: "", text: "" });
+        setDeleteProgress(0);
 
         try {
             await reauthenticate(currentPassword);
 
-            // Cascade Delete Data
+            // Keep the Auth identity until every owned document has been removed.
+            // Batches are bounded, so large accounts can be deleted and retried.
             const collections = ["clusters", "nodes", "disks", "containers"];
-            const batch = writeBatch(db);
-            let hasDeletions = false;
-
             for (const colName of collections) {
-                const q = query(collection(db, colName), where("userId", "==", user.uid));
-                const snap = await getDocs(q);
-                snap.forEach((docSnap) => {
-                    batch.delete(doc(db, colName, docSnap.id));
-                    hasDeletions = true;
-                });
-            }
-
-            if (hasDeletions) {
-                await batch.commit();
+                while (true) {
+                    const q = query(collection(db, colName), where("userId", "==", user.uid), limit(400));
+                    const snap = await getDocs(q);
+                    if (snap.empty) break;
+                    const batch = writeBatch(db);
+                    snap.forEach((docSnap) => batch.delete(docSnap.ref));
+                    await batch.commit();
+                    setDeleteProgress((count) => count + snap.size);
+                }
             }
 
             await deleteUser(user);
@@ -137,9 +142,35 @@ export default function Profile() {
             if (error.code === 'auth/wrong-password') {
                 setMessage({ type: "error", text: "Incorrect password." });
             } else {
-                setMessage({ type: "error", text: "Failed to delete account. " + error.message });
-                setLoading(false);
+                setMessage({ type: "error", text: "Account deletion stopped. Some records may already be removed; you can retry safely. " + error.message });
             }
+            setLoading(false);
+        }
+    };
+
+    const handlePurgePasswords = async () => {
+        setLoading(true);
+        setMessage({ type: "", text: "" });
+        let removed = 0;
+        try {
+            for (const colName of ["nodes", "containers"]) {
+                const snap = await getDocs(query(collection(db, colName), where("userId", "==", user.uid)));
+                const legacy = snap.docs.filter((item) => Object.hasOwn(item.data(), "password"));
+                for (let offset = 0; offset < legacy.length; offset += 400) {
+                    const batch = writeBatch(db);
+                    const group = legacy.slice(offset, offset + 400);
+                    group.forEach((item) => batch.update(item.ref, { password: deleteField() }));
+                    await batch.commit();
+                    removed += group.length;
+                }
+            }
+            setPurgeConfirm(false);
+            setMessage({ type: "success", text: `Removed saved passwords from ${removed} legacy record(s).` });
+        } catch (error) {
+            console.error(error);
+            setMessage({ type: "error", text: `Cleanup stopped after ${removed} record(s). Retry to remove any remaining passwords. ${error.message}` });
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -164,7 +195,7 @@ export default function Profile() {
                 </div>
 
                 {message.text && (
-                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+                    <div ref={messageDialogRef} role="dialog" aria-modal="true" aria-labelledby="profile-message-title" tabIndex={-1} onKeyDown={onMessageDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
                         <div className="bg-[#0D100D] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl relative animate-scaleIn">
                             <div className="flex flex-col items-center text-center">
                                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${message.type === "success"
@@ -173,7 +204,7 @@ export default function Profile() {
                                     }`}>
                                     {message.type === "success" ? <CheckCircle size={24} weight="fill" /> : <Warning size={24} weight="fill" />}
                                 </div>
-                                <h3 className="text-lg font-bold text-white mb-2">
+                                <h3 id="profile-message-title" className="text-lg font-bold text-white mb-2">
                                     {message.type === "success" ? "Success" : "Error"}
                                 </h3>
                                 <p className="text-white/60 text-sm mb-6">
@@ -324,6 +355,26 @@ export default function Profile() {
                     </div>
                 </section>
 
+                <section className="bg-[#0D100D] border border-amber-500/20 rounded-3xl p-6 md:p-8">
+                    <h2 className="text-xl font-bold text-white mb-3">Legacy saved passwords</h2>
+                    <p className="text-white/70 text-sm max-w-xl mb-4">
+                        ClusterEye no longer saves node or container passwords. Older records may still contain them in Firestore.
+                        Remove them here after copying anything you need to a password manager. This cannot be undone.
+                    </p>
+                    {purgeConfirm ? (
+                        <div className="flex flex-wrap gap-3">
+                            <button type="button" onClick={handlePurgePasswords} disabled={loading} className="px-4 py-2 bg-amber-600 text-white rounded-lg disabled:opacity-50">
+                                {loading ? "Removing..." : "Confirm removal"}
+                            </button>
+                            <button type="button" onClick={() => setPurgeConfirm(false)} disabled={loading} className="px-4 py-2 bg-[#161D22] text-white rounded-lg">Cancel</button>
+                        </div>
+                    ) : (
+                        <button type="button" onClick={() => setPurgeConfirm(true)} disabled={loading} className="px-4 py-2 bg-[#161D22] text-amber-200 border border-amber-500/30 rounded-lg disabled:opacity-50">
+                            Remove legacy saved passwords
+                        </button>
+                    )}
+                </section>
+
                 {/* 4. Danger Zone */}
                 <section className="bg-[#0D100D] border border-red-500/20 rounded-3xl p-6 md:p-8 animate-fadeInUp mt-8" style={{ animationDelay: '300ms' }}>
                     <h2 className="text-xl font-bold text-red-500 mb-6 flex items-center gap-2">
@@ -376,7 +427,7 @@ export default function Profile() {
                                         disabled={loading || deleteConfirmText !== "delete" || !currentPassword}
                                         className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-sm transition-all shadow-lg shadow-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Yes, permanently delete
+                                        {loading ? `Removing data (${deleteProgress})...` : "Yes, permanently delete"}
                                     </button>
                                     <button
                                         onClick={() => {

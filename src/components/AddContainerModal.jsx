@@ -3,8 +3,10 @@ import { addDoc, collection } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
 import NumberStepper from "./NumberStepper";
+import useDialogFocus from "./useDialogFocus";
 
 export default function AddContainerModal({ onClose, nodes, containers, clusters }) {
+    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
     const [selectedCluster, setSelectedCluster] = useState("");
     const [containerId, setContainerId] = useState("");
     const [name, setName] = useState("");
@@ -59,6 +61,8 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
             return;
         }
 
+        if (!selectedNode) return setError("Selected node no longer exists");
+
         setLoading(true);
         try {
             await addDoc(collection(db, "containers"), {
@@ -66,9 +70,9 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                 containerId: containerId.trim(),
                 name: name.trim(),
                 nodeId,
+                nodeRefId: selectedNode.id,
                 port: parseInt(port) || port,
                 link: "",
-                password: "",
                 createdAt: new Date().toISOString()
             });
             onClose();
@@ -81,8 +85,8 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0D100D] border border-white/10 p-8 rounded-2xl w-full max-w-md shadow-2xl relative">
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add container" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-[#0D100D] border border-white/10 p-4 md:p-6 rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto custom-scrollbar shadow-2xl relative">
                 <h2 className="text-2xl font-bold text-white mb-6">Add Container</h2>
 
                 {error && (
@@ -99,6 +103,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                         <input
                             autoFocus
                             type="text"
+                            aria-label="Container ID"
                             value={containerId}
                             onChange={(e) => setContainerId(e.target.value)}
                             placeholder="e.g. c-101"
@@ -111,6 +116,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                         <label className="text-xs font-bold text-white/50 tracking-wider">Container Name</label>
                         <input
                             type="text"
+                            aria-label="Container name"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             placeholder="e.g. nginx-proxy"
@@ -118,7 +124,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {/* Cluster Filter */}
                         <div className="flex flex-col gap-2">
                             <label className="text-xs font-bold text-white/50 tracking-wider">Cluster</label>
@@ -158,6 +164,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                         <NumberStepper
                             value={port}
                             onChange={setPort}
+                            label="Port"
                             placeholder="e.g. 8080"
                             className="w-full font-mono"
                         />
