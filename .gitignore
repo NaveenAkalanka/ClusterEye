@@ -6,4 +6,11 @@ node_modules
 .firebase/
 firebase-debug.log
 firestore-debug.log
-.impeccable/hook.cache.json
+
+# Local tooling and AI/design notes (kept out of the repo)
+.impeccable/
+.vscode/
+.claude/
+CLAUDE.md
+DESIGN.md
+PRODUCT.md

@@ -29,7 +29,7 @@
 
 *   **Frontend:** [React 19](https://react.dev/) with React Router (hash routing)
 *   **Build Tool:** [Vite 7](https://vitejs.dev/)
-*   **Styling:** [Tailwind CSS v4](https://tailwindcss.com/), with design tokens in `src/index.css` (see [DESIGN.md](DESIGN.md))
+*   **Styling:** [Tailwind CSS v4](https://tailwindcss.com/), with design tokens in `src/index.css`
 *   **Icons:** [Phosphor Icons](https://phosphoricons.com/)
 *   **Backend / DB:** [Firebase](https://firebase.google.com/) Authentication and Cloud Firestore, with no separate server
 *   **Hosting:** Firebase Hosting (configured in `firebase.json`); `dist/` also works on any static host
@@ -122,8 +122,6 @@ src/
   utils/               Formatting, IP and subnet helpers, IP claim index
 firestore.rules        Security rules
 firestore.indexes.json Composite indexes
-DESIGN.md              Visual design system
-CLAUDE.md              Architecture notes for contributors
 ```
 
 ## 📄 License
