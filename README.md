@@ -32,11 +32,11 @@
 *   **Styling:** [Tailwind CSS v4](https://tailwindcss.com/), with design tokens in `src/index.css`
 *   **Icons:** [Phosphor Icons](https://phosphoricons.com/)
 *   **Backend / DB:** [Firebase](https://firebase.google.com/) Authentication and Cloud Firestore, with no separate server
-*   **Hosting:** Firebase Hosting (configured in `firebase.json`); `dist/` also works on any static host
+*   **Hosting:** Netlify (`netlify.toml`) or Firebase Hosting (`firebase.json`); both set security headers and asset caching
 
 ## 📦 Installation
 
-Requires [Node.js](https://nodejs.org/) 20.19 or later.
+Requires [Node.js](https://nodejs.org/) 22 or later.
 
 1.  **Clone the repository**
     ```bash
