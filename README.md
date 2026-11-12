@@ -7,34 +7,36 @@
 
 > **Cluster Inventory & Management Dashboard**
 
-**ClusterEye** is a dashboard for recording and organizing clusters, VM/LXC nodes, disks, Docker containers, and their IP addresses. Firestore synchronizes saved inventory changes between sessions. The current version does not probe infrastructure or report live host and container health.
+**ClusterEye** is a dashboard for recording and organizing clusters, VM/LXC nodes, disks, Docker containers, and their IP addresses. Firestore keeps the inventory in sync across sessions and devices. It's a manually maintained record: it doesn't probe hosts or report live health, and an unrecorded IP isn't assumed to be free.
 
 ---
 
 ## 🚀 Key Features
 
-*   **Synchronized Dashboard:** Counts and storage totals from inventory records update through Firebase Firestore.
-*   **IP Inventory Map:** A `/24` matrix shows recorded node addresses; unrecorded cells are not verified to be available.
+*   **Dashboard:** Totals for clusters, nodes, storage, containers, and recorded IPs, with inventory checks for disks above 85% and containers without a valid host.
 *   **Asset Management:**
-    *   **Nodes:** Record VM/LXC addresses and disk allocations.
-    *   **Disks:** Visual utilization bars and storage metrics.
-    *   **Clusters:** Multi-cluster support with color-coded organization.
-    *   **Docker:** Record containers, host nodes, and ports.
-*   **Authentication:** Per-user data access using Firebase Auth & Security Rules. There are no application roles.
-*   **Responsive Layouts:** Desktop and mobile list views with adaptive navigation.
-
-> **Credential note:** Node and container password fields are currently stored as Firestore document data. Do not use them for production secrets until dedicated secret storage is added.
+    *   **Nodes:** Record VM/LXC nodes, their IP addresses, and disk allocations.
+    *   **Disks:** Capacity and allocation per disk, checked in a transaction so a disk can't be over-allocated.
+    *   **Clusters:** Group nodes and disks under a base IP and subnet, each with its own colour.
+    *   **Docker:** Record containers, their host nodes, and ports.
+*   **Linked Records:** Each record's view links to its cluster, disks, nodes, or containers.
+*   **Network Map:** A `/24` matrix of recorded node addresses per cluster, with duplicates flagged by name.
+*   **Unique IPs:** Firestore rules reject a second node with the same IP, even when two tabs save at once.
+*   **Accounts:** Email and password sign-in with password reset. Each user sees only their own data. Sign-up can be turned off for a single-user install.
+*   **Responsive and Accessible:** Desktop tables and mobile cards, keyboard-friendly dialogs, and a reduced-motion mode.
 
 ## 🛠️ Tech Stack
 
-*   **Frontend:** [React 19](https://react.dev/)
-*   **Build Tool:** [Vite](https://vitejs.dev/)
-*   **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) + Custom CSS Variables
+*   **Frontend:** [React 19](https://react.dev/) with React Router (hash routing)
+*   **Build Tool:** [Vite 7](https://vitejs.dev/)
+*   **Styling:** [Tailwind CSS v4](https://tailwindcss.com/), with design tokens in `src/index.css` (see [DESIGN.md](DESIGN.md))
 *   **Icons:** [Phosphor Icons](https://phosphoricons.com/)
-*   **Backend / DB:** [Firebase Firestore](https://firebase.google.com/docs/firestore) & Auth
-*   **Deployment:** Netlify / Vercel (Recommended)
+*   **Backend / DB:** [Firebase](https://firebase.google.com/) Authentication and Cloud Firestore, with no separate server
+*   **Hosting:** Firebase Hosting (configured in `firebase.json`); `dist/` also works on any static host
 
 ## 📦 Installation
+
+Requires [Node.js](https://nodejs.org/) 20.19 or later.
 
 1.  **Clone the repository**
     ```bash
@@ -47,8 +49,8 @@
     npm install
     ```
 
-3.  **Configure Environment**
-    Create a `.env` file in the root directory and add your Firebase config:
+3.  **Configure environment**
+    Copy `.env.example` to `.env` and fill in your Firebase web app config (Firebase Console → Project settings → Your apps):
     ```env
     VITE_FIREBASE_API_KEY=your_api_key
     VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
@@ -60,45 +62,69 @@
     # Optional: hide sign-up on a single-user install
     VITE_ALLOW_SIGNUP=false
     ```
-    `.env.example` lists the same keys. With sign-up hidden, also turn off sign-up in Firebase Authentication (Settings → User actions).
+    `.env` is git-ignored. Analytics only runs in production builds, and only when a measurement ID is set.
 
-4.  **Run Development Server**
+4.  **Run the development server**
     ```bash
     npm run dev
     ```
+    Open http://localhost:3000/. The server also listens on your local network.
+
+### Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the dev server on port 3000 |
+| `npm run build` | Production build to `dist/` (tracked in git) |
+| `npm run preview` | Serve the production build locally |
+| `npm run lint` | Run ESLint |
+| `run-local.cmd check` | Windows: lint plus a production build that leaves `dist/` untouched |
 
 ## 🔥 Firebase Setup
 
-To get ClusterEye running, you need to configure a Firebase project.
-
-### 1. Create Project
-Go to [Firebase Console](https://console.firebase.google.com/) and create a new project.
+### 1. Create a project
+Go to the [Firebase Console](https://console.firebase.google.com/) and create a project, then add a web app to get the config values for `.env`.
 
 ### 2. Enable Authentication
-1.  Navigate to **Build > Authentication**.
-2.  Click **Get Started**.
-3.  Select **Email/Password** as a Sign-in method and **Enable** it.
+1.  Go to **Build → Authentication** and click **Get Started**.
+2.  Enable the **Email/Password** sign-in method.
+3.  Under **Settings → Authorized domains**, add the domain you'll host on. Firebase Hosting domains are added automatically.
+4.  For a single-user install, set `VITE_ALLOW_SIGNUP=false`, then also untick account creation under **Settings → User actions**. Hiding the page alone doesn't stop new accounts.
 
-### 3. Create Cloud Firestore Database
-1.  Navigate to **Build > Firestore Database**.
-2.  Click **Create Database**.
-3.  Choose a location (e.g., `us-central1`).
-4.  Start in **Production mode**.
+### 3. Create the Firestore database
+Go to **Build → Firestore Database**, click **Create Database**, choose a location, and start in **Production mode**.
 
-### 4. Deploy Security Rules
-Copy the content of [`firestore.rules`](firestore.rules) (included in this repo) and paste it into the **Rules** tab of your Firestore Database console.
-> **Note:** These rules enforce strict data ownership. Users can only see and edit their own data.
+### 4. Deploy rules, indexes, and the app
+Install the [Firebase CLI](https://firebase.google.com/docs/cli), then from the repo:
+```bash
+firebase login
+firebase use --add            # pick your project
+npm run build
+firebase deploy --only firestore:rules,firestore:indexes,hosting
+```
 
-### 5. Create Indexes (Optional)
-If you encounter "Missing Index" errors in the browser console while filtering, strictly follow the link provided in the error message to automatically create the required Composite Indexes.
-Common indexes needed:
-*   `nodes`: `userId` (Asc) + `node` (Asc)
-*   `disks`: `userId` (Asc) + `disk` (Asc)
-*   `clusters`: `userId` (Asc) + `cluster` (Asc)
+*   **Rules** (`firestore.rules`): limit every user to their own documents, check field types and lengths, keep disk allocation within capacity, and reject duplicate node IPs through the `ipIndex` collection.
+*   **Indexes** (`firestore.indexes.json`): the composite indexes the sorted lists need.
+*   **Hosting** (`firebase.json`): serves `dist/` with security headers and long-term caching for built assets.
 
+> **Deploy rules and hosting together.** The rules expect the current app's write format, so an older build can't add nodes under the new rules.
 
+After deploying, open the **Nodes** page once. It records the IPs of nodes created before the duplicate guard existed. Any older nodes that already share an IP stay flagged on the Network page until you change one.
 
+## 🗂️ Project Structure
 
+```
+src/
+  App.jsx              Auth-gated routes (signed out: Log In / Sign Up; signed in: the app)
+  firebaseConfig.js    Firebase setup from VITE_FIREBASE_* variables
+  pages/               One file per route: Dashboard, Nodes, Clusters, Disks, Network, Docker, Profile
+  components/          Dialogs, shared form controls, and the auth form
+  utils/               Formatting, IP and subnet helpers, IP claim index
+firestore.rules        Security rules
+firestore.indexes.json Composite indexes
+DESIGN.md              Visual design system
+CLAUDE.md              Architecture notes for contributors
+```
 
 ## 📄 License
 
@@ -114,5 +140,3 @@ You are free to:
 *   **ShareAlike** — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.
 
 See [LICENSE](LICENSE) for the full text.
-
-

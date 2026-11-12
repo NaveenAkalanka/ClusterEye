@@ -16,11 +16,14 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// Loaded separately: ad blockers block files named "analytics", and a blocked
+// Analytics runs only in production builds, so local testing isn't counted and the dev
+// console stays quiet. It loads separately because ad blockers block it, and a blocked
 // static import would stop the whole app from starting.
-import("firebase/analytics")
-  .then(({ getAnalytics, isSupported }) => isSupported().then((ok) => ok && getAnalytics(app)))
-  .catch(() => {});
+if (import.meta.env.PROD && firebaseConfig.measurementId) {
+  import("firebase/analytics")
+    .then(({ getAnalytics, isSupported }) => isSupported().then((ok) => ok && getAnalytics(app)))
+    .catch(() => {});
+}
 
 // Set VITE_ALLOW_SIGNUP=false to hide sign-up. Also turn off sign-up in Firebase Authentication,
 // because hiding the page does not stop someone calling the Auth API directly.
