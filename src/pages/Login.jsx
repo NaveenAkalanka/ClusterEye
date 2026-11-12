@@ -1,100 +1,124 @@
-import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebaseConfig";
+import { useRef, useState } from "react";
+import { sendPasswordResetEmail, signInWithEmailAndPassword } from "firebase/auth";
+import { auth, SIGNUP_ENABLED } from "../firebaseConfig";
 import { Link } from "react-router-dom";
-import { Envelope, LockKey, CircleNotch, Warning } from "@phosphor-icons/react";
-import logoUrl from "../assets/ClusterEye.svg";
+import { Envelope, LockKey, CircleNotch } from "@phosphor-icons/react";
+import { FormAlert } from "../components/ui";
+import { AuthField, AuthShell, PasswordField } from "../components/AuthForm";
+import { authErrorMessage, EMAIL_PATTERN } from "../utils/format";
+
+function emailProblem(value) {
+  if (!value) return "Enter your email address.";
+  if (!EMAIL_PATTERN.test(value)) return "Enter an email address like name@example.com.";
+  return "";
+}
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
 
-  const submit = async e => {
+  const clearMessages = () => { setError(""); setNotice(""); };
+
+  const submit = async (e) => {
     e.preventDefault();
-    setError("");
+    clearMessages();
+    const trimmed = email.trim();
+    const problems = { email: emailProblem(trimmed), password: password ? "" : "Enter your password." };
+    setFieldErrors(problems);
+    if (problems.email) return emailRef.current?.focus();
+    if (problems.password) return passwordRef.current?.focus();
+
     setLoading(true);
     try {
-      const { user } = await signInWithEmailAndPassword(auth, email, password);
-      // onLogin is handled by App.jsx auth listener mostly, but we can call it if needed. 
-      // Actually App.jsx passes onLogin/setUser. 
+      const { user } = await signInWithEmailAndPassword(auth, trimmed, password);
       onLogin(user);
     } catch (err) {
       console.error(err);
-      setError("Invalid email or password.");
-    } finally {
+      setError(authErrorMessage(err, "Could not log in. Try again in a moment."));
       setLoading(false);
     }
   };
 
+  const resetPassword = async () => {
+    clearMessages();
+    const trimmed = email.trim();
+    const problem = trimmed ? emailProblem(trimmed) : "Enter your email address, then choose Forgot Password again.";
+    setFieldErrors({ email: problem });
+    if (problem) return emailRef.current?.focus();
+
+    setSendingReset(true);
+    try {
+      await sendPasswordResetEmail(auth, trimmed);
+    } catch (err) {
+      // An unknown address gets the same notice, so this form can't reveal which emails have accounts.
+      if (err.code !== "auth/user-not-found") {
+        console.error(err);
+        setSendingReset(false);
+        return setError(authErrorMessage(err, "Could not send the reset email. Try again in a moment."));
+      }
+    }
+    setSendingReset(false);
+    setNotice(`If ${trimmed} has an account, a password reset email is on its way.`);
+  };
+
   return (
-    <div className="min-h-screen bg-[#060906] flex items-center justify-center p-4">
-      {/* Background Elements */}
-      <div className="fixed top-0 left-0 w-full h-[500px] bg-gradient-to-b from-[#69639E]/10 to-transparent pointer-events-none" />
-      <div className="fixed bottom-0 right-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+    <AuthShell
+      pageTitle="Log In"
+      title="Log In to ClusterEye"
+      description="View and update your infrastructure inventory."
+      footer={SIGNUP_ENABLED && (
+        <>
+          Don't have an account?{" "}
+          <Link to="/signup" className="font-semibold text-accent underline-offset-4 hover:underline">Sign Up</Link>
+        </>
+      )}
+    >
+      <form onSubmit={submit} noValidate className="space-y-4">
+        {error && <FormAlert>{error}</FormAlert>}
+        {notice && <FormAlert tone="success">{notice}</FormAlert>}
 
-      <div className="w-full max-w-[400px] bg-[#0D100D] border border-white/5 p-8 rounded-3xl shadow-2xl relative z-10 animate-fadeInUp">
+        <AuthField
+          id="login-email"
+          label="Email Address"
+          icon={Envelope}
+          inputRef={emailRef}
+          type="email"
+          inputMode="email"
+          autoComplete="username"
+          autoCapitalize="off"
+          spellCheck={false}
+          value={email}
+          onChange={(e) => { setEmail(e.target.value); setFieldErrors((f) => ({ ...f, email: "" })); }}
+          error={fieldErrors.email}
+        />
 
-        {/* Logo Area */}
-        <div className="flex flex-col items-center mb-10">
-          <img src={logoUrl} alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
-          <h1 className="text-3xl font-bold text-white tracking-tight">Welcome back</h1>
-          <p className="text-white/60 text-sm mt-2">Log in to view your infrastructure inventory</p>
-        </div>
+        <PasswordField
+          id="login-password"
+          label="Password"
+          icon={LockKey}
+          inputRef={passwordRef}
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); setFieldErrors((f) => ({ ...f, password: "" })); }}
+          error={fieldErrors.password}
+          action={
+            <button type="button" onClick={resetPassword} disabled={sendingReset} className="rounded-sm text-xs font-medium text-accent underline-offset-4 hover:underline disabled:opacity-60">
+              {sendingReset ? "Sending..." : "Forgot Password?"}
+            </button>
+          }
+        />
 
-        <form onSubmit={submit} className="space-y-4">
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-sm p-3 rounded-xl flex items-center gap-2">
-              <Warning size={18} weight="fill" />
-              {error}
-            </div>
-          )}
-
-          <div className="relative group">
-            <Envelope size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-[#A8C9AD] transition-colors" />
-            <input
-              type="email"
-              placeholder="Email Address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
-            />
-          </div>
-
-          <div className="relative group">
-            <LockKey size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-[#A8C9AD] transition-colors" />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] hover:opacity-90 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(105,99,158,0.3)] hover:shadow-[0_0_30px_rgba(168,201,173,0.4)] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
-          >
-            {loading ? <CircleNotch size={20} className="animate-spin" /> : "Log In"}
-          </button>
-        </form>
-
-        <div className="mt-8 text-center">
-          <p className="text-white/40 text-sm">
-            Don't have an account?{" "}
-            <Link to="/signup" className="text-[#A8C9AD] hover:text-[#69639E] font-semibold transition-colors">
-              Sign Up
-            </Link>
-          </p>
-        </div>
-
-      </div>
-    </div>
+        <button type="submit" disabled={loading} className="btn btn-primary mt-2 h-11 w-full">
+          {loading ? <><CircleNotch size={18} className="animate-spin" aria-hidden="true" /> Logging In...</> : "Log In"}
+        </button>
+      </form>
+    </AuthShell>
   );
 }

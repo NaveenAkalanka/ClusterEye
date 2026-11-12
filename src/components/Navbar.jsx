@@ -3,88 +3,107 @@ import { Link, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 import logoUrl from "../assets/ClusterEye.svg";
-import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, ShippingContainer, List, X } from "@phosphor-icons/react"; // Importing Phosphor icons
+import { Speedometer, HardDrives, ShareNetwork, Disc, Network, User, SignOut, ShippingContainer, List, X } from "@phosphor-icons/react";
+import useDialogFocus from "./useDialogFocus";
+
+const NAV_ITEMS = [
+  { to: "/", label: "Dashboard", icon: Speedometer },
+  { to: "/nodes", label: "Nodes", icon: HardDrives },
+  { to: "/clusters", label: "Clusters", icon: ShareNetwork },
+  { to: "/disks", label: "Disks", icon: Disc },
+  { to: "/network", label: "Network", icon: Network },
+  { to: "/docker", label: "Docker", icon: ShippingContainer },
+];
 
 export default function Navbar({ user }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
-  const sidebarRef = useRef(null);
   const menuRef = useRef(null);
   const location = useLocation();
+  const { dialogRef, onDialogKeyDown } = useDialogFocus(() => setShowSidebar(false), showSidebar);
 
   const handleLogout = async () => {
     await signOut(auth);
     setShowMenu(false);
   };
 
-  const getUserInitials = user?.email?.[0]?.toUpperCase() || "U";
+  const getUserInitials = (user?.displayName || user?.email)?.[0]?.toUpperCase() || "U";
   const isActive = (path) => location.pathname === path;
 
-  const handleClickOutside = (e) => {
-    if (menuRef.current && !menuRef.current.contains(e.target)) {
-      setShowMenu(false);
-    }
-    if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
-      setShowSidebar(false);
-    }
-  };
-
   useEffect(() => {
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    if (!showMenu) return undefined;
+    const handlePointerDown = (e) => {
+      if (!menuRef.current?.contains(e.target)) setShowMenu(false);
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setShowMenu(false);
+        menuRef.current?.querySelector("button")?.focus();
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showMenu]);
 
   useEffect(() => {
     setShowMenu(false);
     setShowSidebar(false);
   }, [location.key]);
 
-  const toggleSidebar = () => setShowSidebar(!showSidebar);
-
   return (
     <>
-      <div className="w-full h-20 bg-[#0D100D] rounded-[20px] relative flex items-center justify-between px-4 min-[1200px]:px-8 flex-shrink-0">
+      <header className="nav-enter telemetry-navbar telemetry-surface relative flex h-16 w-full flex-shrink-0 items-center justify-between rounded-2xl border px-3 min-[1200px]:px-5">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 min-[1200px]:gap-3">
-          <img src={logoUrl} alt="ClusterEye Logo" className="w-8 h-8 min-[1200px]:w-10 min-[1200px]:h-10 object-contain" />
-          <div className="text-white text-lg min-[1200px]:text-2xl font-bold tracking-widest leading-none">ClusterEye</div>
+        <Link to="/" className="flex items-center gap-2.5 rounded-lg">
+          <img src={logoUrl} alt="" className="size-8 object-contain" />
+          <span className="text-base font-semibold tracking-[0.08em] text-white">ClusterEye</span>
         </Link>
 
         {/* Navigation Links (Desktop) */}
-        <div className="flex items-center gap-2 text-white text-lg hidden min-[1200px]:flex">
-          <NavItem label="Dashboard" to="/" icon={<Speedometer size={24} className="text-[#69639E]" />} isActive={isActive("/")} />
-          <NavItem label="Nodes" to="/nodes" icon={<HardDrives size={24} className="text-[#69639E]" />} isActive={isActive("/nodes")} />
-          <NavItem label="Clusters" to="/clusters" icon={<ShareNetwork size={24} className="text-[#69639E]" />} isActive={isActive("/clusters")} />
-          <NavItem label="Disks" to="/disks" icon={<Disc size={24} className="text-[#69639E]" />} isActive={isActive("/disks")} />
-          <NavItem label="Network" to="/network" icon={<Network size={24} className="text-[#69639E]" />} isActive={isActive("/network")} />
-          <NavItem label="Docker" to="/docker" icon={<ShippingContainer size={24} className="text-[#69639E]" />} isActive={isActive("/docker")} />
-        </div>
+        <nav aria-label="Primary navigation" className="hidden items-center gap-1 text-sm text-white min-[1200px]:flex">
+          {NAV_ITEMS.map((item) => (
+            <NavItem key={item.to} to={item.to} label={item.label} icon={<item.icon size={18} className="text-accent" />} isActive={isActive(item.to)} />
+          ))}
+        </nav>
 
         {/* User Profile (Desktop) */}
-        <div ref={menuRef} className="relative hidden min-[1200px]:flex items-center gap-3">
+        <div ref={menuRef} className="relative hidden items-center gap-3 min-[1200px]:flex">
           <button
+            type="button"
             onClick={() => setShowMenu(!showMenu)}
-            className="w-10 h-10 bg-zinc-300 rounded-full flex items-center justify-center text-black text-xl font-bold hover:bg-zinc-400 transition-colors cursor-pointer"
+            className="flex size-9 items-center justify-center rounded-xl bg-accent text-sm font-bold text-on-accent transition-colors hover:bg-accent-hover"
+            aria-label="Account menu"
+            aria-haspopup="true"
+            aria-expanded={showMenu}
           >
             {getUserInitials}
           </button>
 
           {showMenu && (
-            <div className="absolute top-20 right-0 bg-[#161D22] border border-white/10 p-4 rounded-lg shadow-xl w-64 z-50">
+            <div className="absolute right-0 top-12 z-50 w-64 rounded-xl border border-line-strong bg-raised p-2 shadow-2xl animate-scaleIn">
+              <div className="mb-1 border-b border-line px-3 pb-2.5 pt-1.5">
+                {user?.displayName && <div className="truncate text-sm font-medium text-white">{user.displayName}</div>}
+                <div className="truncate text-xs text-white/70">{user?.email}</div>
+              </div>
               <Link
                 to="/profile"
                 onClick={() => setShowMenu(false)}
-                className="flex items-center gap-3 w-full text-left px-4 py-2 text-white hover:bg-white/10 rounded-lg cursor-pointer transition-colors"
+                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-white transition-colors hover:bg-white/10"
               >
-                <User size={20} className="text-[#69639E]" weight="duotone" />
-                Profile
+                <User size={20} className="text-accent" />
+                Account Settings
               </Link>
               <button
+                type="button"
                 onClick={handleLogout}
-                className="flex items-center gap-3 w-full text-left px-4 py-2 text-red-400 hover:bg-white/10 rounded-lg cursor-pointer transition-colors"
+                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm text-white transition-colors hover:bg-white/10"
               >
-                <SignOut size={20} weight="duotone" />
-                Logout
+                <SignOut size={20} className="text-accent" />
+                Log Out
               </button>
             </div>
           )}
@@ -92,28 +111,40 @@ export default function Navbar({ user }) {
 
         {/* Mobile Toggle */}
         <button
-          className="min-[1200px]:hidden text-white cursor-pointer p-2"
-          onClick={toggleSidebar}
+          type="button"
+          className="inline-flex size-11 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5 min-[1200px]:hidden"
+          onClick={() => setShowSidebar(true)}
           aria-label="Open menu"
+          aria-expanded={showSidebar}
         >
-          <List size={28} weight="bold" />
+          <List size={26} weight="bold" />
         </button>
-      </div>
+      </header>
 
       {/* Mobile Sidebar */}
       {showSidebar && (
-        <div ref={sidebarRef} className="fixed inset-0 bg-black/80 z-[100] min-[1200px]:hidden backdrop-blur-sm animate-fadeIn">
-          <div className="w-64 h-full overflow-y-auto bg-[#0D100D] border-r border-white/10 p-6 flex flex-col gap-6 shadow-2xl animate-slideRight">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-zinc-300 rounded-full flex items-center justify-center text-black font-bold">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+          tabIndex={-1}
+          onKeyDown={onDialogKeyDown}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowSidebar(false); }}
+          className="fixed inset-0 z-[100] bg-black/70 animate-fadeIn min-[1200px]:hidden"
+        >
+          <nav aria-label="Mobile navigation" className="flex h-full w-[min(18rem,calc(100vw-1rem))] flex-col gap-5 overflow-y-auto border-r border-line bg-surface p-4 shadow-2xl animate-slideRight">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-sm font-bold text-on-accent">
                   {getUserInitials}
                 </div>
-                <div className="text-white text-sm font-medium truncate max-w-[120px]">{user?.email?.split('@')[0]}</div>
+                <div className="truncate text-sm font-medium text-white">{user?.displayName || user?.email}</div>
               </div>
               <button
+                type="button"
                 onClick={() => setShowSidebar(false)}
-                className="text-white cursor-pointer p-1"
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/5"
                 aria-label="Close menu"
               >
                 <X size={22} weight="bold" />
@@ -121,26 +152,24 @@ export default function Navbar({ user }) {
             </div>
 
             <div className="flex flex-col gap-2">
-              <MobileNavItem to="/" label="Dashboard" icon={<Speedometer size={24} className="text-[#69639E]" />} isActive={isActive("/")} onClick={() => setShowSidebar(false)} />
-              <MobileNavItem to="/nodes" label="Nodes" icon={<HardDrives size={24} className="text-[#69639E]" />} isActive={isActive("/nodes")} onClick={() => setShowSidebar(false)} />
-              <MobileNavItem to="/clusters" label="Clusters" icon={<ShareNetwork size={24} className="text-[#69639E]" />} isActive={isActive("/clusters")} onClick={() => setShowSidebar(false)} />
-              <MobileNavItem to="/disks" label="Disks" icon={<Disc size={24} className="text-[#69639E]" />} isActive={isActive("/disks")} onClick={() => setShowSidebar(false)} />
-              <MobileNavItem to="/network" label="Network" icon={<Network size={24} className="text-[#69639E]" />} isActive={isActive("/network")} onClick={() => setShowSidebar(false)} />
-              <MobileNavItem to="/docker" label="Docker" icon={<ShippingContainer size={24} className="text-[#69639E]" />} isActive={isActive("/docker")} onClick={() => setShowSidebar(false)} />
+              {NAV_ITEMS.map((item) => (
+                <MobileNavItem key={item.to} to={item.to} label={item.label} icon={<item.icon size={22} className="text-accent" />} isActive={isActive(item.to)} onClick={() => setShowSidebar(false)} />
+              ))}
 
-              <div className="h-px bg-white/10 my-4"></div>
+              <div className="my-3 h-px bg-line"></div>
 
-              <MobileNavItem to="/profile" label="Profile" icon={<User size={24} className="text-[#69639E]" />} isActive={isActive("/profile")} onClick={() => setShowSidebar(false)} />
+              <MobileNavItem to="/profile" label="Account Settings" icon={<User size={22} className="text-accent" />} isActive={isActive("/profile")} onClick={() => setShowSidebar(false)} />
 
               <button
+                type="button"
                 onClick={() => { setShowSidebar(false); handleLogout(); }}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 font-medium hover:bg-white/5 transition-colors cursor-pointer w-full text-left"
+                className="flex h-11 w-full items-center gap-3 rounded-xl px-3.5 text-left text-sm font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
               >
-                <SignOut size={24} weight="duotone" />
-                Logout
+                <SignOut size={22} className="text-accent" />
+                Log Out
               </button>
             </div>
-          </div>
+          </nav>
         </div>
       )}
     </>
@@ -151,10 +180,11 @@ function NavItem({ label, to, icon, isActive }) {
   return (
     <Link
       to={to}
-      className={`flex items-center gap-3 px-6 py-2 rounded-[20px] transition-all duration-300 border
+      aria-current={isActive ? "page" : undefined}
+      className={`flex h-10 items-center gap-2 rounded-lg border px-3 font-medium transition-colors duration-200
         ${isActive
-          ? "bg-white/[0.05] text-white border-white/5"
-          : "text-white/70 border-transparent hover:text-white hover:bg-white/[0.03] hover:border-white/10"
+          ? "bg-white/[0.05] text-white border-line"
+          : "text-white/70 border-transparent hover:text-white hover:bg-white/[0.03] hover:border-line"
         }
       `}
     >
@@ -169,8 +199,9 @@ function MobileNavItem({ label, to, icon, isActive, onClick }) {
     <Link
       to={to}
       onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all duration-300
-        ${isActive ? "bg-gradient-to-r from-[#69639E]/20 to-[#A8C9AD]/10 text-white border border-[#69639E]/30" : "text-white/70 hover:bg-white/5 hover:text-white"}
+      aria-current={isActive ? "page" : undefined}
+      className={`flex h-11 items-center gap-3 rounded-xl border px-3.5 text-sm font-medium transition-colors duration-200
+        ${isActive ? "border-line-strong bg-accent/10 text-white" : "border-transparent text-white/70 hover:bg-white/5 hover:text-white"}
       `}
     >
       {icon}

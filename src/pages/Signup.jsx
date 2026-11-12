@@ -1,122 +1,110 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../firebaseConfig";
 import { Link } from "react-router-dom";
-import { Envelope, LockKey, User, CircleNotch, Warning } from "@phosphor-icons/react";
-import logoUrl from "../assets/ClusterEye.svg";
+import { Envelope, LockKey, User, CircleNotch } from "@phosphor-icons/react";
+import { FormAlert } from "../components/ui";
+import { AuthField, AuthShell, PasswordField } from "../components/AuthForm";
+import { authErrorMessage, EMAIL_PATTERN } from "../utils/format";
+
+const MIN_PASSWORD = 6;
 
 export default function Signup() {
-    const [name, setName] = useState("");
-    const [email, setEmail] = useState("");
-    const [password, setPassword] = useState("");
-    const [error, setError] = useState("");
-    const [loading, setLoading] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const refs = { name: useRef(null), email: useRef(null), password: useRef(null) };
 
-    const handleSignup = async (e) => {
-        e.preventDefault();
-        setError("");
-        setLoading(true);
+  const edit = (key, setter) => (e) => { setter(e.target.value); setFieldErrors((f) => ({ ...f, [key]: "" })); };
 
-        try {
-            const { user } = await createUserWithEmailAndPassword(auth, email, password);
-            // Update display name immediately after creation
-            if (name) {
-                await updateProfile(user, { displayName: name });
-            }
-            // App.jsx auth listener will detect user and redirect/render Dashboard
-        } catch (err) {
-            console.error(err);
-            if (err.code === 'auth/email-already-in-use') {
-                setError("Email is already in use.");
-            } else if (err.code === 'auth/weak-password') {
-                setError("Password is too weak (min 6 chars).");
-            } else {
-                setError("Failed to create account. Please try again.");
-            }
-        } finally {
-            setLoading(false);
-        }
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setError("");
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    const problems = {
+      name: trimmedName ? "" : "Enter a display name.",
+      email: !trimmedEmail ? "Enter your email address." : EMAIL_PATTERN.test(trimmedEmail) ? "" : "Enter an email address like name@example.com.",
+      password: password.length >= MIN_PASSWORD ? "" : `Use at least ${MIN_PASSWORD} characters.`,
     };
+    setFieldErrors(problems);
+    const firstProblem = ["name", "email", "password"].find((key) => problems[key]);
+    if (firstProblem) return refs[firstProblem].current?.focus();
 
-    return (
-        <div className="min-h-screen bg-[#060906] flex items-center justify-center p-4">
-            {/* Background Elements */}
-            <div className="fixed top-0 left-0 w-full h-[500px] bg-gradient-to-b from-[#69639E]/10 to-transparent pointer-events-none" />
-            <div className="fixed bottom-0 right-0 w-[500px] h-[500px] bg-blue-500/5 rounded-full blur-[100px] pointer-events-none" />
+    setLoading(true);
+    try {
+      const { user } = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+      // The auth listener in App.jsx switches to the dashboard once the account exists.
+      await updateProfile(user, { displayName: trimmedName });
+    } catch (err) {
+      console.error(err);
+      setError(authErrorMessage(err, "Could not create your account. Try again in a moment."));
+      setLoading(false);
+    }
+  };
 
-            <div className="w-full max-w-[400px] bg-[#0D100D] border border-white/5 p-8 rounded-3xl shadow-2xl relative z-10 animate-fadeInUp">
+  return (
+    <AuthShell
+      pageTitle="Sign Up"
+      title="Create Your Account"
+      description="Start keeping a record of your infrastructure."
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link to="/" className="font-semibold text-accent underline-offset-4 hover:underline">Log In</Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSignup} noValidate className="space-y-4">
+        {error && <FormAlert>{error}</FormAlert>}
 
-                {/* Logo Area */}
-                <div className="flex flex-col items-center mb-10">
-                    <img src={logoUrl} alt="ClusterEye" className="w-16 h-16 mb-4 drop-shadow-[0_0_15px_rgba(105,99,158,0.5)]" />
-                    <h1 className="text-3xl font-bold text-white tracking-tight">Create account</h1>
-                    <p className="text-white/60 text-sm mt-2">Create an account to organize your infrastructure</p>
-                </div>
+        <AuthField
+          id="signup-name"
+          label="Display Name"
+          icon={User}
+          inputRef={refs.name}
+          type="text"
+          autoComplete="name"
+          maxLength={100}
+          value={name}
+          onChange={edit("name", setName)}
+          error={fieldErrors.name}
+        />
 
-                <form onSubmit={handleSignup} className="space-y-4">
+        <AuthField
+          id="signup-email"
+          label="Email Address"
+          icon={Envelope}
+          inputRef={refs.email}
+          type="email"
+          inputMode="email"
+          autoComplete="username"
+          autoCapitalize="off"
+          spellCheck={false}
+          value={email}
+          onChange={edit("email", setEmail)}
+          error={fieldErrors.email}
+        />
 
-                    {error && (
-                        <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-sm p-3 rounded-xl flex items-center gap-2">
-                            <Warning size={18} weight="fill" />
-                            {error}
-                        </div>
-                    )}
+        <PasswordField
+          id="signup-password"
+          label="Password"
+          icon={LockKey}
+          inputRef={refs.password}
+          autoComplete="new-password"
+          value={password}
+          onChange={edit("password", setPassword)}
+          error={fieldErrors.password}
+          hint={`At least ${MIN_PASSWORD} characters.`}
+        />
 
-                    <div className="relative group">
-                        <User size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-[#A8C9AD] transition-colors" />
-                        <input
-                            type="text"
-                            placeholder="Display Name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
-                        />
-                    </div>
-
-                    <div className="relative group">
-                        <Envelope size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-[#A8C9AD] transition-colors" />
-                        <input
-                            type="email"
-                            placeholder="Email Address"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
-                        />
-                    </div>
-
-                    <div className="relative group">
-                        <LockKey size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-[#A8C9AD] transition-colors" />
-                        <input
-                            type="password"
-                            placeholder="Password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            className="w-full h-12 bg-[#161D22] border border-white/5 rounded-xl px-4 pl-11 text-white placeholder:text-white/50 outline-none focus:border-[#A8C9AD]/50 focus:bg-[#161D22]/80 transition-all font-medium"
-                        />
-                    </div>
-
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full h-12 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] hover:opacity-90 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(105,99,158,0.3)] hover:shadow-[0_0_30px_rgba(168,201,173,0.4)] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed mt-2"
-                    >
-                        {loading ? <CircleNotch size={20} className="animate-spin" /> : "Sign Up"}
-                    </button>
-                </form>
-
-                <div className="mt-8 text-center">
-                    <p className="text-white/40 text-sm">
-                        Already have an account?{" "}
-                        <Link to="/" className="text-[#A8C9AD] hover:text-[#69639E] font-semibold transition-colors">
-                            Log In
-                        </Link>
-                    </p>
-                </div>
-
-            </div>
-        </div>
-    );
+        <button type="submit" disabled={loading} className="btn btn-primary mt-2 h-11 w-full">
+          {loading ? <><CircleNotch size={18} className="animate-spin" aria-hidden="true" /> Creating Account...</> : "Sign Up"}
+        </button>
+      </form>
+    </AuthShell>
+  );
 }

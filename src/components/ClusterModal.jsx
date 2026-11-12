@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { XCircle, Warning } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 import { doc, deleteDoc, writeBatch, collection, query, where, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
 import { isValidSubnetMask, isIpInSubnet } from "../utils/network";
-import useDialogFocus from "./useDialogFocus";
+import { DEFAULT_CLUSTER_COLOR, fmtBytes } from "../utils/format";
+import Dialog from "./Dialog";
+import { ClusterColorPicker, Field, FormAlert, RelatedLinks } from "./ui";
 
 export default function ClusterModal({ cluster, onClose, uid, allClusters = [], allNodes = [], disks = [] }) {
     // Local state for editing
@@ -11,31 +12,26 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
     const [localName, setLocalName] = useState(cluster.cluster);
     const [localIp, setLocalIp] = useState(cluster.ipAddress || "");
     const [localSubnet, setLocalSubnet] = useState(cluster.subnetMask || "255.255.255.0");
-    const [localColor, setLocalColor] = useState(cluster.color || "#69639E");
+    const [localColor, setLocalColor] = useState(cluster.color || DEFAULT_CLUSTER_COLOR);
 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
-    const [confirmDiscard, setConfirmDiscard] = useState(false);
 
     // Delete state
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
-    const { dialogRef, onDialogKeyDown } = useDialogFocus(
-        () => confirmDiscard ? setConfirmDiscard(false) : handleCloseRequest(),
-        true,
-        confirmDiscard
-    );
+
+    // Show the saved record again after Cancel or Save.
+    useEffect(() => {
+        if (editMode) return;
+        setLocalName(cluster.cluster);
+        setLocalIp(cluster.ipAddress || "");
+        setLocalSubnet(cluster.subnetMask || "255.255.255.0");
+        setLocalColor(cluster.color || DEFAULT_CLUSTER_COLOR);
+    }, [cluster, editMode]);
 
     // Check dirty
-    const isDirty = localName !== cluster.cluster || localIp !== (cluster.ipAddress || "") || localSubnet !== (cluster.subnetMask || "255.255.255.0") || localColor !== (cluster.color || "#69639E");
-
-    function handleCloseRequest() {
-        if (editMode && isDirty) {
-            setConfirmDiscard(true);
-        } else {
-            onClose();
-        }
-    }
+    const isDirty = localName !== cluster.cluster || localIp !== (cluster.ipAddress || "") || localSubnet !== (cluster.subnetMask || "255.255.255.0") || localColor !== (cluster.color || DEFAULT_CLUSTER_COLOR);
 
     /* ---------------- UPDATE ---------------- */
     async function handleSave() {
@@ -111,27 +107,26 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
             setEditMode(false);
         } catch (err) {
             console.error(err);
-            setError("Update failed.");
+            setError("Could not save the cluster. Check your connection and try again.");
         } finally {
             setSaving(false);
         }
     }
 
     /* ---------------- DELETE ---------------- */
-    async function handleDelete() {
-        if (deleteConfirmText !== cluster.cluster) {
-            return setError(`Type "${cluster.cluster}" to confirm.`);
+    // Explain what blocks deletion before asking for the name to be typed.
+    function requestDelete() {
+        const nodeCount = allNodes.filter(n => n.clusterId ? n.clusterId === cluster.id : n.cluster === cluster.cluster).length;
+        const diskCount = disks.filter(d => d.clusterId ? d.clusterId === cluster.id : d.cluster === cluster.cluster).length;
+        if (nodeCount > 0 || diskCount > 0) {
+            const parts = [nodeCount > 0 && `${nodeCount} ${nodeCount === 1 ? "node" : "nodes"}`, diskCount > 0 && `${diskCount} ${diskCount === 1 ? "disk" : "disks"}`].filter(Boolean);
+            return setError(`This cluster still has ${parts.join(" and ")}. Delete or move them first.`);
         }
+        setError("");
+        setConfirmDelete(true);
+    }
 
-        // CHECK DEPENDENCIES
-        const hasNodes = allNodes.some(n => n.clusterId ? n.clusterId === cluster.id : n.cluster === cluster.cluster);
-        if (hasNodes) {
-            return setError("Cannot delete: Cluster has associated nodes. Delete nodes first.");
-        }
-        const hasDisks = disks.some(d => d.clusterId ? d.clusterId === cluster.id : d.cluster === cluster.cluster);
-        if (hasDisks) {
-            return setError("Cannot delete: Cluster has associated disks. Delete disks first.");
-        }
+    async function handleDelete() {
 
         setSaving(true);
         try {
@@ -139,229 +134,97 @@ export default function ClusterModal({ cluster, onClose, uid, allClusters = [], 
             onClose(); // Close modal on success
         } catch (err) {
             console.error(err);
-            setError("Delete failed.");
+            setError("Could not delete the cluster. Check your connection and try again.");
         } finally {
             setSaving(false);
         }
     }
 
-    /* ---------------- UI ---------------- */
+    const footer = confirmDelete ? (
+        <>
+            <button type="button" onClick={() => { setConfirmDelete(false); setError(""); setDeleteConfirmText(""); }} className="btn btn-secondary">Cancel</button>
+            <button type="button" onClick={handleDelete} disabled={saving || deleteConfirmText !== cluster.cluster} className="btn btn-danger-solid">
+                {saving ? "Deleting..." : "Delete Cluster"}
+            </button>
+        </>
+    ) : editMode ? (
+        <>
+            <button type="button" onClick={() => { setEditMode(false); setError(""); }} disabled={saving} className="btn btn-secondary">Cancel</button>
+            <button type="button" onClick={handleSave} disabled={saving} className="btn btn-primary">
+                {saving ? "Saving..." : "Save Changes"}
+            </button>
+        </>
+    ) : (
+        <>
+            <button type="button" onClick={requestDelete} className="btn btn-danger mr-auto">Delete</button>
+            <button type="button" onClick={() => setEditMode(true)} className="btn btn-secondary">Edit</button>
+        </>
+    );
 
-    if (confirmDiscard) {
-        return (
-            <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Discard cluster changes" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-                <div className="bg-[#161D22] border border-white/10 rounded-2xl p-6 max-w-sm text-center shadow-2xl">
-                    <h3 className="text-white font-semibold text-lg mb-2">Unsaved Changes</h3>
-                    <p className="text-white/60 text-sm mb-6">You have unsaved edits. Are you sure you want to discard them?</p>
-                    <div className="grid grid-cols-2 gap-3">
-                        <button
-                            onClick={() => setConfirmDiscard(false)}
-                            className="px-4 py-2 rounded-xl bg-[#0D100D] text-white hover:bg-white/5 transition-all text-xs font-bold cursor-pointer"
-                        >
-                            Keep Editing
-                        </button>
-                        <button
-                            onClick={onClose}
-                            className="px-4 py-2 rounded-xl bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-all text-xs font-bold cursor-pointer border border-yellow-500/20"
-                        >
-                            Discard
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const clusterNodes = allNodes.filter((n) => n.clusterId ? n.clusterId === cluster.id : n.cluster === cluster.cluster);
+    const clusterDisks = disks.filter((d) => d.clusterId ? d.clusterId === cluster.id : d.cluster === cluster.cluster);
 
     return (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Cluster ${cluster.cluster}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
-            <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-4 md:p-6 w-full max-w-lg shadow-2xl">
+        <Dialog
+            title={confirmDelete ? "Delete Cluster?" : editMode ? "Edit Cluster" : cluster.cluster}
+            onClose={onClose}
+            dirty={editMode && isDirty}
+            focusKey={`${editMode}-${confirmDelete}`}
+            footer={footer}
+        >
+            {error && <FormAlert className="mb-4">{error}</FormAlert>}
 
-                {/* Header */}
-                <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
-                    <h3 className="text-lg font-semibold text-white">
-                        {editMode ? "Edit Cluster" : "Cluster Details"}
-                    </h3>
-                    <button
-                        onClick={handleCloseRequest}
-                        className="px-2 py-1 bg-[#161D22] rounded-lg hover:bg-[#1c252b] text-white text-xs transition-all shadow-sm flex items-center gap-1 cursor-pointer"
-                    >
-                        <XCircle size={14} weight="fill" className="text-white/60" />
-                        Close
-                    </button>
+            {confirmDelete ? (
+                <div className="space-y-4">
+                    <p className="text-sm text-white/80">
+                        This permanently removes <span className="font-semibold text-white">{cluster.cluster}</span> from your inventory and can't be undone.
+                    </p>
+                    <Field label={`Type "${cluster.cluster}" to Confirm`}>
+                        <input type="text" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} autoComplete="off" spellCheck={false} className="input" />
+                    </Field>
                 </div>
-
-                {/* Content */}
-                {!confirmDelete ? (
-                    <div className="space-y-5">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                                <div className="text-white/70 mb-2 text-xs font-medium">Cluster Name</div>
-                                {editMode ? (
-                                    <input
-                                        value={localName}
-                                        onChange={e => setLocalName(e.target.value)}
-                                        className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all"
-                                        maxLength={50}
-                                    />
-                                ) : (
-                                    <div className="text-white font-medium text-lg truncate">{cluster.cluster}</div>
-                                )}
-                            </div>
-                            <div>
-                                <div className="text-white/70 mb-2 text-xs font-medium">IP Address</div>
-                                {editMode ? (
-                                    <input
-                                        value={localIp}
-                                        onChange={e => setLocalIp(e.target.value)}
-                                        className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all"
-                                    />
-                                ) : (
-                                    <div className="text-white/80 font-mono text-base">{cluster.ipAddress || "—"}</div>
-                                )}
-                            </div>
-                            <div>
-                                <div className="text-white/70 mb-2 text-xs font-medium">Subnet Mask</div>
-                                {editMode ? (
-                                    <input
-                                        value={localSubnet}
-                                        onChange={e => setLocalSubnet(e.target.value)}
-                                        className="w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all"
-                                    />
-                                ) : (
-                                    <div className="text-white/80 font-mono text-base">{cluster.subnetMask || "255.255.255.0"}</div>
-                                )}
-                            </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                            <Field label="Cluster Name">
+                                <input readOnly={!editMode} value={localName} onChange={(e) => setLocalName(e.target.value)} maxLength={50} className="input" />
+                            </Field>
                         </div>
+                        <Field label="IP Address">
+                            <input readOnly={!editMode} value={localIp} onChange={(e) => setLocalIp(e.target.value)} inputMode="decimal" spellCheck={false} className="input font-mono" />
+                        </Field>
+                        <Field label="Subnet Mask">
+                            <input readOnly={!editMode} value={localSubnet} onChange={(e) => setLocalSubnet(e.target.value)} inputMode="decimal" spellCheck={false} className="input font-mono" />
+                        </Field>
+                    </div>
 
-                        {/* Color Picker (Edit Mode) or Display (View Mode) */}
+                    {editMode ? (
                         <div>
-                            <div className="text-white/70 mb-2 text-xs font-medium">Cluster Color</div>
-                            {editMode ? (
-                                <div className="grid grid-cols-5 gap-2" role="group" aria-label="Cluster color">
-                                    {[
-                                        "#EF4444", "#F97316", "#F59E0B", "#EAB308", "#84CC16", "#22C55E", "#10B981", "#14B8A6",
-                                        "#06B6D4", "#0EA5E9", "#3B82F6", "#6366F1", "#8B5CF6", "#A855F7", "#D946EF", "#EC4899",
-                                        "#F43F5E", "#64748B", "#78716C", "#69639E"
-                                    ].map((color) => (
-                                        <button type="button"
-                                            key={color}
-                                            onClick={() => setLocalColor(color)}
-                                            aria-label={`Select color ${color}`}
-                                            aria-pressed={localColor === color}
-                                            className={`h-9 rounded-md cursor-pointer transition-all hover:brightness-110 active:brightness-90 ${localColor === color ? "ring-2 ring-white ring-offset-2 ring-offset-[#0D100D]" : ""}`}
-                                            style={{ backgroundColor: color }}
-                                            title={color}
-                                        />
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 rounded-full shadow-md" style={{ backgroundColor: cluster.color || "#69639E" }}></div>
-                                    <span className="text-white/60 text-xs">Theme Color</span>
-                                </div>
-                            )}
+                            <div className="field-label">Cluster Color</div>
+                            <ClusterColorPicker value={localColor} onChange={setLocalColor} />
                         </div>
-
-                        {/* Read Only Stats */}
-                        {!editMode && (
-                            <div className="grid grid-cols-3 gap-3">
-                                <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Nodes</div>
-                                    <div className="text-white text-xl font-bold">{cluster.nodes || 0}</div>
+                    ) : (
+                        <dl className="grid grid-cols-3 gap-3">
+                            {[["Nodes", cluster.nodes || 0], ["Disks", cluster.disks || 0], ["Storage", fmtBytes(cluster.total)]].map(([label, value]) => (
+                                <div key={label} className="rounded-xl border border-line bg-raised p-3">
+                                    <dt className="mb-1 text-xs font-medium text-white/70">{label}</dt>
+                                    <dd className="truncate font-mono text-lg font-semibold text-white">{value}</dd>
                                 </div>
-                                <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Disks</div>
-                                    <div className="text-white text-xl font-bold">{cluster.disks || 0}</div>
-                                </div>
-                                <div className="p-3 rounded-xl bg-[#161D22] border border-white/5 text-center">
-                                    <div className="text-white/50 text-xs font-bold tracking-wider mb-1">Storage</div>
-                                    <div className="text-white text-xl font-bold">{(cluster.total / 1000000000).toFixed(0)} GB</div>
-                                </div>
-                            </div>
-                        )}
+                            ))}
+                        </dl>
+                    )}
 
-                        {error && (
-                            <div className="bg-red-500/10 text-red-200 border border-red-500/20 rounded-lg px-3 py-2 text-xs">
-                                {error}
-                            </div>
-                        )}
-
-                        <div className="flex justify-end gap-3 pt-2 border-t border-white/5 mt-4">
-                            {editMode ? (
-                                <>
-                                    <button
-                                        onClick={() => setEditMode(false)}
-                                        disabled={saving}
-                                        className="px-4 py-2 rounded-lg bg-[#161D22] text-white hover:bg-[#1c252b] text-xs font-bold transition-all cursor-pointer"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleSave}
-                                        disabled={saving}
-                                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white hover:opacity-90 text-xs font-bold transition-all cursor-pointer shadow-md"
-                                    >
-                                        {saving ? "Saving..." : "Save Changes"}
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    <button
-                                        onClick={() => setConfirmDelete(true)}
-                                        className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs font-bold transition-all cursor-pointer"
-                                    >
-                                        Delete
-                                    </button>
-                                    <button
-                                        onClick={() => setEditMode(true)}
-                                        className="px-4 py-2 rounded-lg bg-[#161D22] text-white hover:bg-[#1c252b] text-xs font-bold transition-all cursor-pointer shadow-sm border border-white/5"
-                                    >
-                                        Edit Cluster
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="space-y-4 text-center py-4">
-                        <Warning size={48} className="text-red-500 mx-auto opacity-80" weight="fill" />
-                        <h3 className="text-white font-bold text-lg">Delete Cluster?</h3>
-                        <p className="text-white/60 text-sm max-w-xs mx-auto">
-                            This will permanently delete the cluster <b>{cluster.cluster}</b>. This action cannot be undone. Ensure it is empty first.
-                        </p>
-
-                        <input
-                            type="text"
-                            placeholder={`Type "${cluster.cluster}" to confirm`}
-                            value={deleteConfirmText}
-                            onChange={(e) => setDeleteConfirmText(e.target.value)}
-                            className="w-full max-w-xs mx-auto h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-red-500/50 transition-all text-center"
+                    {!editMode && (
+                        <RelatedLinks
+                            groups={[
+                                { label: "Nodes", items: clusterNodes.map((n) => ({ key: n.id, label: n.node, to: `/nodes?open=${n.id}` })), empty: "No nodes" },
+                                { label: "Disks", items: clusterDisks.map((d) => ({ key: d.id, label: d.disk, to: `/disks?open=${d.id}` })), empty: "No disks" },
+                            ]}
                         />
-
-                        {error && (
-                            <div className="bg-red-500/10 text-red-200 border border-red-500/20 rounded-lg px-3 py-2 text-xs max-w-xs mx-auto">
-                                {error}
-                            </div>
-                        )}
-
-                        <div className="flex justify-center gap-3 pt-4">
-                            <button
-                                onClick={() => { setConfirmDelete(false); setError(""); setDeleteConfirmText(""); }}
-                                className="px-5 py-2 rounded-xl bg-[#161D22] text-white hover:bg-[#1c252b] text-xs font-bold transition-all cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleDelete}
-                                disabled={saving}
-                                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-lg shadow-red-900/20 cursor-pointer"
-                            >
-                                {saving ? "Deleting..." : "Confirm Delete"}
-                            </button>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    )}
+                </div>
+            )}
+        </Dialog>
     );
 }

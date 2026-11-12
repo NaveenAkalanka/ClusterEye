@@ -3,29 +3,91 @@
 @theme {
   --font-sans: 'Outfit', system-ui, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, monospace;
+
+  --color-canvas: #070a08;
+  --color-surface: #0b100c;
+  --color-raised: #172019;
+  --color-raised-hover: #1f2a22;
+  --color-field: #0e1410;
+  --color-field-line: #626e65;
+  --color-line: rgb(168 201 173 / 0.11);
+  --color-line-strong: rgb(168 201 173 / 0.2);
+  --color-accent: #a8c9ad;
+  --color-accent-hover: #bdd9c1;
+  --color-on-accent: #081009;
+  --color-caution: #d6b77a;
+  --color-alert: #e29189;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  background-color: #060906;
-  color: white;
-  font-family: var(--font-sans);
-  font-variant-numeric: tabular-nums;
-}
+/* Base styles live in a layer so Tailwind utilities such as text-xs and font-bold can override them. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    background-color: var(--color-canvas);
+    color: white;
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
+  html {
+    color-scheme: dark;
+  }
 
-code,
-kbd,
-pre {
-  font-family: var(--font-mono);
+  @supports not selector(::-webkit-scrollbar) {
+    html {
+      scrollbar-color: #2c362e transparent;
+      scrollbar-width: thin;
+    }
+  }
+
+  ::selection {
+    background: rgb(168 201 173 / 0.3);
+    color: white;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    caret-color: var(--color-accent);
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--font-mono);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(255 255 255 / 0.5);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type=number] {
+    -moz-appearance: textfield;
+  }
+
+  input[type=search]::-webkit-search-cancel-button {
+    filter: invert(1) opacity(0.6);
+  }
 }
 
 /* Keep secondary copy readable on the dark application surface. */
@@ -34,136 +96,330 @@ pre {
 .text-white\/40 { color: rgb(255 255 255 / 0.62); }
 .text-white\/50 { color: rgb(255 255 255 / 0.70); }
 
-input::placeholder,
-textarea::placeholder {
-  color: rgb(255 255 255 / 0.5);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 @layer components {
   .input {
-    @apply w-full h-10 bg-[#161D22] text-white text-sm px-4 rounded-xl outline-none border border-white/5 focus:border-white/20 transition-all;
+    @apply h-10 w-full rounded-xl border border-field-line bg-field px-4 text-sm text-white outline-none transition-colors placeholder:text-white/50 focus:border-accent;
   }
 
-  /* Ensure select options are dark */
+  /* View modes show values as selectable text, so an IP can still be copied. */
+  .input:read-only {
+    @apply border-transparent bg-transparent px-0;
+  }
+
+  .field-label {
+    @apply mb-2 block text-xs font-medium text-white/70;
+  }
+
+  .btn {
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-4 text-sm font-semibold transition-colors active:translate-y-px;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-on-accent hover:bg-accent-hover;
+  }
+
+  .btn-secondary {
+    @apply border border-line bg-raised text-white hover:border-line-strong hover:bg-raised-hover;
+  }
+
+  .btn-danger {
+    @apply border border-alert/30 bg-alert/10 text-alert hover:bg-alert/20;
+  }
+
+  .btn-danger-solid {
+    @apply bg-red-700 text-white hover:bg-red-600;
+  }
+
+  .icon-btn {
+    @apply relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-raised text-white/70 transition-colors hover:border-line-strong hover:bg-raised-hover hover:text-white;
+  }
+
+  .row-open {
+    @apply inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-accent transition-colors hover:bg-white/10 hover:text-white;
+  }
+
   select option {
-    @apply bg-[#161D22] text-white;
+    @apply bg-raised text-white;
   }
 }
 
-/* Hide number input arrows/spinners */
-/* Chrome, Safari, Edge, Opera */
-input[type=number]::-webkit-outer-spin-button,
-input[type=number]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-/* Firefox */
-input[type=number] {
-  -moz-appearance: textfield;
-}
-
-/* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0D100D;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 3px;
+  background: #2c362e;
+  border-radius: 4px;
 }
-
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #445046;
 }
 
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+:root {
+  --ease-arrive: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.animate-fadeInUp {
-  animation: fadeInUp 0.6s ease-out forwards;
+/* Registered so the donut's sweep angle can animate; it rests at a full circle if the animation never runs. */
+@property --sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 360deg;
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .animate-fadeIn {
-  animation: fadeIn 0.2s ease-out forwards;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes barGrow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes donutSweep {
+  from { --sweep: 0deg; }
+  to { --sweep: 360deg; }
+}
+
+@keyframes tileReveal {
+  from { clip-path: inset(0 100% 0 0 round 8px); }
+  to { clip-path: inset(0 0 0 0 round 8px); }
+}
+
+@keyframes cellLight {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}
+
+/* Panels arrive first on a reload, refresh, or route change. Every entrance fills backwards only, so nothing stays transformed afterwards. */
+.nav-enter {
+  animation: dropIn 0.3s var(--ease-arrive) backwards;
+}
+
+.animate-panelIn {
+  animation: riseIn 0.32s var(--ease-arrive) backwards;
+}
+
+:is(.stagger-cards, .telemetry-inventory) > :is(section, aside, header) {
+  animation: riseIn 0.28s var(--ease-arrive) backwards;
+  animation-delay: calc(var(--card, 0) * 45ms);
+}
+
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(2) { --card: 1; }
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(3) { --card: 2; }
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(4) { --card: 3; }
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(5) { --card: 4; }
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(6) { --card: 5; }
+:is(.stagger-cards, .telemetry-inventory) > :nth-child(n + 7) { --card: 6; }
+
+/* Rising bottom cards would add scrollable height for a moment and flash a scrollbar, so they only fade. */
+.stagger-cards > :is(section, aside, header):nth-child(n + 5) {
+  animation-name: fadeIn;
+}
+
+/* Then records, capped so long lists never make anyone wait. Bars inherit --row and draw after their row. */
+.stagger-rows > * {
+  animation: riseIn 0.24s var(--ease-arrive) backwards;
+  animation-delay: calc(var(--row, 0) * 24ms + 80ms);
+}
+
+.stagger-rows > :nth-child(2) { --row: 1; }
+.stagger-rows > :nth-child(3) { --row: 2; }
+.stagger-rows > :nth-child(4) { --row: 3; }
+.stagger-rows > :nth-child(5) { --row: 4; }
+.stagger-rows > :nth-child(6) { --row: 5; }
+.stagger-rows > :nth-child(7) { --row: 6; }
+.stagger-rows > :nth-child(8) { --row: 7; }
+.stagger-rows > :nth-child(n + 9) { --row: 8; }
+
+/* Then the charts draw themselves. */
+.bar-fill {
+  transform-origin: left center;
+  animation: barGrow 0.6s var(--ease-arrive) backwards;
+  animation-delay: calc(var(--row, 0) * 45ms + 160ms);
+}
+
+.donut-ring {
+  mask-image: conic-gradient(#000 var(--sweep), transparent 0);
+  animation: donutSweep 0.8s var(--ease-arrive) 120ms backwards;
+}
+
+.tile-reveal {
+  animation: tileReveal 0.55s var(--ease-arrive) backwards;
+  animation-delay: calc(var(--tile, 0) * 80ms + 140ms);
+}
+
+/* Recorded addresses light up in address order, like entries being written into the ledger. */
+.cell-lit {
+  animation: cellLight 0.35s var(--ease-arrive) backwards;
+  animation-delay: calc(var(--cell, 0) * 2.5ms + 160ms);
+}
+
+.loading-in {
+  animation: fadeIn 0.2s ease-out 0.12s backwards;
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(168 201 173 / 0.07), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .animate-scaleIn {
-  animation: scaleIn 0.3s ease-out forwards;
+  animation: scaleIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes slideRight {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
 }
 
 .animate-slideRight {
-  animation: slideRight 0.3s ease-out forwards;
+  animation: slideRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :where(button, a, input, select, textarea):focus-visible {
-  outline: 2px solid #A8C9AD;
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
 
+/* Inputs show focus through their border; the outline would double it. */
+.input:focus-visible {
+  outline-offset: -1px;
+}
+
+/* Reduced motion drops movement and drawing but keeps gentle fades, so state changes still read. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+  }
+
+  .nav-enter,
+  .animate-panelIn,
+  .animate-scaleIn,
+  .animate-slideRight,
+  .stagger-rows > *,
+  :is(.stagger-cards, .telemetry-inventory) > :is(section, aside, header) {
+    animation: fadeIn 0.15s ease-out backwards;
+  }
+
+  .bar-fill,
+  .donut-ring,
+  .tile-reveal,
+  .cell-lit,
+  .shimmer::after {
+    animation: none;
+  }
+
+  .shimmer::after {
+    display: none;
+  }
+
+  button:active {
+    transform: none;
+  }
+}
+
+.telemetry-theme {
+  color-scheme: dark;
+  background-color: var(--color-canvas);
+  background-image:
+    radial-gradient(circle at 12% -10%, rgb(168 201 173 / 0.085), transparent 30rem),
+    radial-gradient(circle at 92% 108%, rgb(226 145 137 / 0.035), transparent 26rem);
+  background-attachment: fixed;
+}
+
+.telemetry-surface {
+  border-color: var(--color-line);
+  background-color: var(--color-surface);
+  background-image: radial-gradient(ellipse at 100% 0%, rgb(168 201 173 / 0.07), transparent 52%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.025),
+    0 10px 28px rgb(0 0 0 / 0.12);
+}
+
+.telemetry-card-head {
+  background: rgb(7 10 8 / 0.76);
+  border-color: var(--color-line);
+}
+
+.dialog-panel {
+  border: 1px solid var(--color-line-strong);
+  background-color: var(--color-surface);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.55);
+}
+
+.telemetry-theme .rounded-3xl { border-radius: 0.875rem; }
+.telemetry-theme .rounded-2xl { border-radius: 0.75rem; }
+.telemetry-theme .rounded-xl { border-radius: 0.5rem; }
+
+.telemetry-navbar nav a {
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  transition-property: color, background-color, border-color, box-shadow;
+}
+
+.telemetry-navbar nav a[aria-current="page"] {
+  border-color: var(--color-line-strong);
+  background: rgb(168 201 173 / 0.08);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+
+.telemetry-inventory aside > div:first-child {
+  margin: -1rem -1rem 0;
+  padding: 0.875rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  background: rgb(7 10 8 / 0.62);
+}
+
+.telemetry-settings section > h2:first-child {
+  margin: -1.25rem -1.25rem 1.25rem;
+  padding: 0.875rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--color-line);
+  background: rgb(7 10 8 / 0.62);
+  font-size: 0.875rem;
+}
+
+@media (min-width: 640px) {
+  .telemetry-inventory aside > div:first-child {
+    margin: -1.25rem -1.25rem 0;
+    padding: 1rem 1.25rem 0.875rem;
   }
 }

@@ -10,11 +10,14 @@ import {
   runTransaction,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { ArrowSquareOut, XCircle, Warning } from "@phosphor-icons/react";
+import { ArrowSquareOut, Plus } from "@phosphor-icons/react";
 import CustomSelect from "./CustomSelect";
+import Dialog from "./Dialog";
 import NumberStepper from "./NumberStepper";
+import { Field, FormAlert, RelatedLinks } from "./ui";
 import { isIpInSubnet } from "../utils/network";
-import useDialogFocus from "./useDialogFocus";
+import { DEFAULT_CLUSTER_COLOR, toHref } from "../utils/format";
+import { assertIpFree, claimIp, ipIndexRef, releaseIp } from "../utils/ipIndex";
 
 export default function NodeModal({ node, onClose, clusters, disks, containers, uid }) {
   const [editMode, setEditMode] = useState(false);
@@ -24,28 +27,18 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   const [info, setInfo] = useState("");
 
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [clusterLocked, setClusterLocked] = useState(false);
-  const [showLockWarning, setShowLockWarning] = useState(false);
-  const { dialogRef, onDialogKeyDown } = useDialogFocus(
-    () => confirmDiscard ? setConfirmDiscard(false) : handleCloseRequest(),
-    true,
-    confirmDiscard
-  );
+
+  // Show the saved record again after Cancel or Save.
+  useEffect(() => {
+    if (!editMode) setLocal({ ...node });
+  }, [node, editMode]);
+
+  const clusterLocked = (local.allocations || []).length > 0;
 
   // Check for unsaved changes
   const isDirty = useMemo(() => {
     return JSON.stringify(local) !== JSON.stringify(node);
   }, [local, node]);
-
-  // Handle Close (Discard Check)
-  function handleCloseRequest() {
-    if (editMode && isDirty) {
-      setConfirmDiscard(true);
-    } else {
-      onClose();
-    }
-  }
 
   // Filter disks based on cluster
   const clusterDisks = useMemo(() => {
@@ -63,28 +56,10 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   }
 
   // Subnet warning when editing
-  useEffect(() => {
-    if (!editMode) return;
-    if (!local.cluster) return;
-    const cl = clusters.find((c) => c.id === local.clusterId) || clusters.find((c) => c.cluster === local.cluster);
-    if (!cl?.ipAddress) return;
-    if (!isIpInSubnet(local.ipAddress, cl.ipAddress, cl.subnetMask || "255.255.255.0")) {
-      setInfo(
-        `IP must be in the cluster subnet (${cl.ipAddress}, mask ${cl.subnetMask || "255.255.255.0"}).`
-      );
-    } else {
-      setInfo("");
-    }
-  }, [local.cluster, local.clusterId, local.ipAddress, editMode, clusters]);
-
-  // Lock cluster if allocations exist
-  useEffect(() => {
-    if ((local.allocations || []).length > 0) {
-      setClusterLocked(true);
-    } else {
-      setClusterLocked(false);
-    }
-  }, [local.allocations]);
+  const selectedCluster = clusters.find((c) => c.id === local.clusterId) || clusters.find((c) => c.cluster === local.cluster);
+  const subnetWarning = editMode && selectedCluster?.ipAddress && !isIpInSubnet(local.ipAddress, selectedCluster.ipAddress, selectedCluster.subnetMask || "255.255.255.0")
+    ? `IP must be in the cluster subnet (${selectedCluster.ipAddress}, mask ${selectedCluster.subnetMask || "255.255.255.0"}).`
+    : "";
 
   /* ----------------------- SAVE ----------------------- */
   async function handleSave() {
@@ -199,6 +174,12 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
         if (JSON.stringify(current.allocations || []) !== JSON.stringify(node.allocations || [])) {
           throw new Error("Node allocations changed elsewhere. Close and reopen this node.");
         }
+        const nextIp = local.ipAddress.trim();
+        const ipChanged = nextIp !== current.ipAddress;
+        const [newIpSnap, oldIpSnap] = ipChanged
+          ? await Promise.all([transaction.get(ipIndexRef(uid, nextIp)), current.ipAddress ? transaction.get(ipIndexRef(uid, current.ipAddress)) : null])
+          : [null, null];
+        if (ipChanged) assertIpFree(newIpSnap, nextIp, node.id);
         const deltas = new Map();
         const addDelta = (allocation, direction) => {
           const disk = disks.find((item) => item.id === allocation.diskId) || disks.find((item) => item.disk === allocation.disk);
@@ -233,13 +214,17 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
         updatedAt: serverTimestamp(),
         });
         linked.forEach((item) => transaction.update(doc(db, "containers", item.id), { nodeId: local.nodeId.trim(), nodeRefId: node.id }));
+        if (ipChanged) {
+          claimIp(transaction, newIpSnap, uid, nextIp, node.id);
+          if (oldIpSnap) releaseIp(transaction, oldIpSnap, node.id);
+        }
       });
 
       setEditMode(false);
-      setInfo("✅ Node updated successfully.");
+      setInfo("Node updated.");
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to update node.");
+      setError(err.message || "Could not save the node. Check your connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -250,7 +235,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
     // Check for linked containers
     const linkedContainers = (containers || []).filter(c => c.nodeRefId ? c.nodeRefId === node.id : c.nodeId === node.nodeId);
     if (linkedContainers.length > 0) {
-      setError(`Cannot delete node. It has ${linkedContainers.length} active container(s).`);
+      setError(`This node hosts ${linkedContainers.length} ${linkedContainers.length === 1 ? "container" : "containers"}. Move or delete ${linkedContainers.length === 1 ? "it" : "them"} first.`);
       return;
     }
     setConfirmDelete(true);
@@ -265,6 +250,7 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
         const currentSnap = await transaction.get(nodeRef);
         const current = currentSnap.data();
         if (!current || current.userId !== uid) throw new Error("Node no longer exists.");
+        const ipSnap = current.ipAddress ? await transaction.get(ipIndexRef(uid, current.ipAddress)) : null;
         const deltas = new Map();
         for (const a of current.allocations || []) {
           const disk = disks.find((item) => item.id === a.diskId) || disks.find((item) => item.disk === a.disk);
@@ -281,12 +267,13 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
           transaction.update(ref, { used, free: Number(data.total) - used });
         });
         transaction.delete(nodeRef);
+        if (ipSnap) releaseIp(transaction, ipSnap, node.id);
       });
 
       onClose();
     } catch (err) {
       console.error(err);
-      setError(err.message || "Delete failed.");
+      setError(err.message || "Could not delete the node. Check your connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -316,179 +303,120 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
   }
 
   /* ----------------------- RENDER ----------------------- */
+  const footer = confirmDelete ? (
+    <>
+      <button type="button" onClick={() => setConfirmDelete(false)} className="btn btn-secondary">Cancel</button>
+      <button type="button" onClick={executeDelete} disabled={saving} className="btn btn-danger-solid">
+        {saving ? "Deleting..." : "Delete Node"}
+      </button>
+    </>
+  ) : !editMode ? (
+    <>
+      <button type="button" onClick={handleDelete} className="btn btn-danger mr-auto">Delete</button>
+      <button type="button" onClick={() => { setEditMode(true); setInfo(""); setError(""); }} className="btn btn-secondary">Edit</button>
+    </>
+  ) : (
+    <>
+      <button type="button" onClick={() => { setEditMode(false); setError(""); }} className="btn btn-secondary">Cancel</button>
+      <button type="button" onClick={handleSave} disabled={saving} className="btn btn-primary">
+        {saving ? "Saving..." : "Save Changes"}
+      </button>
+    </>
+  );
+
+  const nodeCluster = clusters.find((c) => node.clusterId ? c.id === node.clusterId : c.cluster === node.cluster);
+  const nodeDisks = (node.allocations || [])
+    .map((a) => disks.find((d) => a.diskId ? d.id === a.diskId : d.disk === a.disk))
+    .filter((d, i, list) => d && list.indexOf(d) === i);
+  const nodeContainers = (containers || []).filter((c) => c.nodeRefId ? c.nodeRefId === node.id : c.nodeId === node.nodeId);
+
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Node ${node.node}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90dvh] custom-scrollbar shadow-2xl">
-        <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
-          <h3 className="text-lg font-semibold">
-            {confirmDelete
-              ? "Delete Node?"
-              : editMode
-                ? "Edit Node"
-                : `Node: ${local.node}`}
-          </h3>
-          <button
-            onClick={handleCloseRequest}
-            className="px-2 py-1 bg-[#161D22] rounded-lg hover:bg-[#1c252b] text-white text-xs transition-all shadow-sm flex items-center gap-1 cursor-pointer"
-          >
-            <XCircle size={14} weight="fill" className="text-white/60" />
-            Close
-          </button>
-        </div>
+    <Dialog
+      title={confirmDelete ? "Delete Node?" : editMode ? "Edit Node" : node.node}
+      onClose={onClose}
+      dirty={editMode && isDirty}
+      focusKey={`${editMode}-${confirmDelete}`}
+      footer={footer}
+    >
+      <div className="space-y-4">
+        {info && <FormAlert tone="success">{info}</FormAlert>}
+        {subnetWarning && !error && <FormAlert tone="caution">{subnetWarning}</FormAlert>}
+        {error && <FormAlert>{error}</FormAlert>}
 
-        {info && (
-          <div className="bg-blue-600/20 text-blue-200 border border-blue-600/30 rounded-lg px-3 py-2 mb-3">
-            {info}
-          </div>
-        )}
-        {error && (
-          <div className="bg-red-600/20 text-red-200 border border-red-600/30 rounded-lg px-3 py-2 mb-3">
-            {error}
-          </div>
-        )}
-
-        <div className="space-y-4 md:space-y-5">
-          {!confirmDelete && !confirmDiscard ? (
-            // Wrap form content
-            <div className="space-y-4 md:space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                <Field label="Node ID">
-                  <input
-                    disabled={!editMode}
-                    value={local.nodeId || ""}
-                    onChange={(e) => setLocal({ ...local, nodeId: e.target.value })}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Node Name">
-                  <input
-                    disabled={!editMode}
-                    value={local.node}
-                    onChange={(e) => setLocal({ ...local, node: e.target.value })}
-                    className="input"
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                <Field label="Type">
-                  <CustomSelect
-                    value={local.type}
-                    onChange={(val) => setLocal({ ...local, type: val })}
-                    options={["LXC", "VM"]}
-                    placeholder="LXC"
-                    disabled={!editMode}
-                  />
-                </Field>
-
-                <Field label="Cluster">
-                  <div
-                    onClickCapture={() => {
-                      if (clusterLocked && editMode) {
-                        setShowLockWarning(true);
-                      }
-                    }}
-                  >
-                    <CustomSelect
-                      value={local.cluster}
-                      onChange={(val) => {
-                        const upd = { ...local, cluster: val, clusterId: clusters.find((c) => c.cluster === val)?.id || "" };
-                        // Autofill IP
-                            const cObj = clusters.find((c) => c.cluster === val);
-                        if (cObj && cObj.ipAddress) {
-                          const prefix =
-                            cObj.ipAddress.split(".").slice(0, 3).join(".") + ".";
-                          upd.ipAddress = prefix;
-                        }
-                        setLocal(upd);
-                      }}
-                      options={clusters.map((c) => c.cluster)}
-                      placeholder="Select Cluster"
-                      disabled={!editMode || clusterLocked}
-                    />
-                  </div>
-                  {clusterLocked && showLockWarning && (
-                    <div className="text-xs text-yellow-300 mt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                      ⚠️ Remove all disk allocations before changing cluster.
-                    </div>
-                  )}
-                </Field>
-              </div>
-
-              <Field label="IP Address">
-                <input
-                  disabled={!editMode}
-                  value={local.ipAddress}
-                  onChange={(e) => setLocal({ ...local, ipAddress: e.target.value })}
-                  className="input"
+        {confirmDelete ? (
+          <p className="text-sm text-white/80">
+            Delete <span className="font-semibold text-white">{node.node}</span> from your inventory and return its disk allocations? This can't be undone.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Node ID">
+                <input readOnly={!editMode} value={local.nodeId || ""} onChange={(e) => setLocal({ ...local, nodeId: e.target.value })} autoCapitalize="off" spellCheck={false} className="input" />
+              </Field>
+              <Field label="Node Name">
+                <input readOnly={!editMode} value={local.node} onChange={(e) => setLocal({ ...local, node: e.target.value })} autoCapitalize="off" spellCheck={false} className="input" />
+              </Field>
+              <Field label="Type">
+                <CustomSelect value={local.type} onChange={(val) => setLocal({ ...local, type: val })} options={["LXC", "VM"]} readOnly={!editMode} clearable={false} />
+              </Field>
+              <Field label="Cluster" hint={editMode && clusterLocked ? "Remove all disk allocations to change the cluster." : undefined}>
+                <CustomSelect
+                  value={local.cluster}
+                  onChange={(val) => {
+                    const upd = { ...local, cluster: val, clusterId: clusters.find((c) => c.cluster === val)?.id || "" };
+                    // Autofill IP
+                    const cObj = clusters.find((c) => c.cluster === val);
+                    if (cObj && cObj.ipAddress) {
+                      upd.ipAddress = cObj.ipAddress.split(".").slice(0, 3).join(".") + ".";
+                    }
+                    setLocal(upd);
+                  }}
+                  options={clusters.map((c) => c.cluster)}
+                  placeholder="Select Cluster"
+                  readOnly={!editMode}
+                  disabled={clusterLocked}
+                  clearable={false}
                 />
               </Field>
+              <Field label="IP Address">
+                <input readOnly={!editMode} value={local.ipAddress} onChange={(e) => setLocal({ ...local, ipAddress: e.target.value })} inputMode="decimal" spellCheck={false} className="input font-mono" />
+              </Field>
+              <Field label="Username">
+                <input readOnly={!editMode} value={local.username || ""} onChange={(e) => setLocal({ ...local, username: e.target.value })} placeholder={editMode ? "e.g. root" : "None"} autoCapitalize="off" spellCheck={false} className="input" />
+              </Field>
+            </div>
 
-              <hr className="border-white/10" />
+            <Field label="Link">
+              {editMode ? (
+                <input value={local.link || ""} onChange={(e) => setLocal({ ...local, link: e.target.value })} inputMode="url" placeholder="http://..." autoCapitalize="off" spellCheck={false} className="input" />
+              ) : local.link ? (
+                <a href={toHref(local.link)} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 max-w-full items-center gap-2 text-sm text-accent underline-offset-4 hover:underline">
+                  <span className="truncate">{local.link}</span>
+                  <ArrowSquareOut size={16} className="shrink-0" aria-hidden="true" />
+                </a>
+              ) : (
+                <div className="flex h-10 items-center text-sm text-white/55">None</div>
+              )}
+            </Field>
 
-              <div>
-                <Field label="Username">
-                  <input
-                    disabled={!editMode}
-                    value={local.username || ""}
-                    onChange={(e) => setLocal({ ...local, username: e.target.value })}
-                    className="input"
-                  />
-                </Field>
-
+            <div className="border-t border-line pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-medium text-white/80">Disk Allocations</h3>
+                {editMode && (
+                  <button type="button" onClick={addAlloc} className="btn btn-secondary h-9 px-3 text-xs"><Plus size={14} weight="bold" /> Add Disk</button>
+                )}
               </div>
 
-              <Field label="Link">
-                <div className="relative">
-                  <input
-                    disabled={!editMode}
-                    value={local.link || ""}
-                    onChange={(e) => setLocal({ ...local, link: e.target.value })}
-                    className="input pr-10"
-                  />
-                  {local.link && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        let url = local.link;
-                        if (!/^https?:\/\//i.test(url)) {
-                          url = "http://" + url;
-                        }
-                        window.open(url, "_blank", "noopener,noreferrer");
-                      }}
-                      aria-label="Open node link"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white transition-colors cursor-pointer"
-                      title="Open in new tab"
-                    >
-                      <ArrowSquareOut size={20} />
-                    </button>
-                  )}
-                </div>
-              </Field>
+              {(!local.allocations || local.allocations.length === 0) && (
+                <p className="text-sm text-white/55">No disks allocated.</p>
+              )}
 
-              <hr className="border-white/10" />
-
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <div className="text-white/80 font-medium text-sm">Allocations</div>
-                  {editMode && (
-                    <button
-                      onClick={addAlloc}
-                      className="px-3 py-1 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-sm cursor-pointer"
-                    >
-                      + Add
-                    </button>
-                  )}
-                </div>
-
-                {(!local.allocations || local.allocations.length === 0) && (
-                  <div className="text-white/60">No allocations.</div>
-                )}
-
+              <div className="space-y-2">
                 {local.allocations?.map((a, i) => (
-                  <div key={i} className="flex flex-wrap gap-2 items-center mt-1">
-                    <div className="flex-1 min-w-[200px]">
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-[200px] flex-1">
                       <CustomSelect
+                        label={`Disk ${i + 1}`}
                         value={a.diskId || clusterDisks.find((d) => d.disk === a.disk)?.id || ""}
                         onChange={(val) => {
                           const selected = clusterDisks.find((d) => d.id === val);
@@ -498,133 +426,37 @@ export default function NodeModal({ node, onClose, clusters, disks, containers, 
                           }));
                         }}
                         options={clusterDisks.map((d) => {
-                          const freeGB =
-                            ((d.total || 0) - (d.used || 0)) / 1_000_000_000;
-                          return {
-                            value: d.id,
-                            label: d.disk,
-                            subLabel: `${freeGB.toFixed(1)} GB free`,
-                          };
+                          const freeGB = ((d.total || 0) - (d.used || 0)) / 1_000_000_000;
+                          return { value: d.id, label: d.disk, subLabel: editMode ? `${freeGB.toFixed(1)} GB free` : undefined };
                         })}
-                        placeholder="Select disk"
-                        disabled={!editMode}
+                        placeholder="Select Disk"
+                        readOnly={!editMode}
+                        clearable={false}
                       />
                     </div>
-                    <div className="w-full sm:w-32">
-                      <NumberStepper
-                        value={a.allocatedGB}
-                        onChange={(val) => changeAlloc(i, "allocatedGB", val)}
-                        min={0}
-                        className={!editMode ? "pointer-events-none opacity-50 border-none bg-transparent" : ""}
-                      />
+                    <div className={editMode ? "w-full sm:w-36" : "shrink-0"}>
+                      <NumberStepper value={a.allocatedGB} onChange={(val) => changeAlloc(i, "allocatedGB", val)} label={`Disk ${i + 1} GB`} min={0} readOnly={!editMode} unit="GB" />
                     </div>
                     {editMode && (
-                      <button
-                        onClick={() => removeAlloc(i)}
-                        className="w-full sm:w-auto px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all cursor-pointer"
-                      >
-                        Remove
-                      </button>
+                      <button type="button" onClick={() => removeAlloc(i)} className="btn btn-danger w-full sm:w-auto">Remove</button>
                     )}
                   </div>
                 ))}
               </div>
             </div>
-          ) : confirmDiscard ? (
-            <div className="text-center py-6 animate-in zoom-in-95 duration-200">
-              <Warning size={48} className="mx-auto text-yellow-400 mb-4" weight="duotone" />
-              <h3 className="text-xl font-bold text-white mb-2">Discard Changes?</h3>
-              <p className="text-white/60 text-sm mb-6 max-w-xs mx-auto">
-                You have unsaved changes. Are you sure you want to discard them?
-              </p>
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => setConfirmDiscard(false)}
-                  className="px-5 py-2 rounded-xl bg-[#161D22] text-white/70 hover:text-white hover:bg-[#1c252b] font-medium transition-all cursor-pointer"
-                >
-                  Keep Editing
-                </button>
-                <button
-                  onClick={onClose}
-                  className="px-5 py-2 rounded-xl bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20 font-bold transition-all shadow-lg shadow-yellow-500/5 cursor-pointer"
-                >
-                  Discard
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* ---------------- Confirmation View ---------------- */
-            <div className="space-y-4 py-4">
-              <div className="text-white/80">
-                Are you sure you want to delete <span className="font-bold text-white">{local.node}</span>?
-                <br />
-                This action cannot be undone.
-              </div>
-            </div>
-          )}
 
-          {/* Actions */}
-          <div className="flex justify-end gap-2 mt-5">
-            {confirmDelete ? (
-              <>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  className="px-3 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={executeDelete}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-                >
-                  Confirm Delete
-                </button>
-              </>
-            ) : !editMode ? (
-              <>
-                <button
-                  onClick={() => setEditMode(true)}
-                  className="px-4 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs transition-all cursor-pointer"
-                >
-                  Delete
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setEditMode(false)}
-                  className="px-3 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#69639E] to-[#A8C9AD] opacity-90 hover:opacity-100 text-white text-xs font-bold transition-all shadow-md disabled:opacity-50 cursor-pointer"
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-              </>
+            {!editMode && (
+              <RelatedLinks
+                groups={[
+                  { label: "Cluster", items: nodeCluster ? [{ key: nodeCluster.id, label: nodeCluster.cluster, to: `/clusters?open=${nodeCluster.id}`, color: nodeCluster.color || DEFAULT_CLUSTER_COLOR }] : [], empty: "Not found" },
+                  { label: "Disks", items: nodeDisks.map((d) => ({ key: d.id, label: d.disk, to: `/disks?open=${d.id}` })), empty: "No disks allocated" },
+                  { label: "Containers", items: nodeContainers.map((c) => ({ key: c.id, label: c.name, to: `/docker?open=${c.id}` })), empty: "No containers" },
+                ]}
+              />
             )}
-          </div>
-        </div>
+          </>
+        )}
       </div>
-    </div>
-  );
-}
-
-/* ----------------------- UI Helper ----------------------- */
-function Field({ label, children }) {
-  return (
-    <div>
-      <div className="text-white/70 mb-2 text-xs font-medium">{label}</div>
-      {children}
-    </div>
+    </Dialog>
   );
 }

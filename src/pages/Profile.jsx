@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { updateProfile, verifyBeforeUpdateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, deleteUser } from "firebase/auth";
 import { collection, query, where, getDocs, writeBatch, limit, deleteField } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { User, Envelope, LockKey, FloppyDisk, Warning, Trash, CheckCircle } from "@phosphor-icons/react";
-import useDialogFocus from "../components/useDialogFocus";
+import { User, Envelope, LockKey, FloppyDisk, Trash, X } from "@phosphor-icons/react";
+import { Field, FormAlert } from "../components/ui";
+import { authErrorMessage } from "../utils/format";
 
 export default function Profile({ user }) {
     const [name, setName] = useState(user?.displayName || "");
@@ -20,11 +21,13 @@ export default function Profile({ user }) {
     const [deleteConfirmText, setDeleteConfirmText] = useState("");
     const [purgeConfirm, setPurgeConfirm] = useState(false);
     const [deleteProgress, setDeleteProgress] = useState(0);
-    const { dialogRef: messageDialogRef, onDialogKeyDown: onMessageDialogKeyDown } = useDialogFocus(
-        () => setMessage({ type: "", text: "" }),
-        Boolean(message.text),
-        message.text
-    );
+
+    // Success messages clear themselves; errors stay until dismissed.
+    useEffect(() => {
+        if (message.type !== "success") return undefined;
+        const timer = setTimeout(() => setMessage({ type: "", text: "" }), 6000);
+        return () => clearTimeout(timer);
+    }, [message]);
 
     useEffect(() => {
         if (user) {
@@ -37,13 +40,13 @@ export default function Profile({ user }) {
         setLoading(true);
         setMessage({ type: "", text: "" });
         try {
-            if (name !== user.displayName) {
+            if (name !== (user.displayName || "")) {
                 await updateProfile(user, { displayName: name });
             }
             setMessage({ type: "success", text: "Profile updated successfully." });
         } catch (error) {
             console.error(error);
-            setMessage({ type: "error", text: "Failed to update profile." });
+            setMessage({ type: "error", text: "Could not save your profile. Check your connection and try again." });
         } finally {
             setLoading(false);
         }
@@ -60,17 +63,13 @@ export default function Profile({ user }) {
             await verifyBeforeUpdateEmail(user, email);
             setMessage({
                 type: "success",
-                text: "Verification email sent. Please check your inbox (and spam folder) to confirm the change."
+                text: "Verification email sent. Open the link in it to finish changing your address."
             });
             setReauthMode(null);
             setCurrentPassword("");
         } catch (error) {
             console.error(error);
-            if (error.code === 'auth/wrong-password') {
-                setMessage({ type: "error", text: "Incorrect password." });
-            } else {
-                setMessage({ type: "error", text: "Failed to update email. " + error.message });
-            }
+            setMessage({ type: "error", text: passwordError(error, "Could not update your email. Try again in a moment.") });
         } finally {
             setLoading(false);
         }
@@ -97,11 +96,7 @@ export default function Profile({ user }) {
             setConfirmPassword("");
         } catch (error) {
             console.error(error);
-            if (error.code === 'auth/wrong-password') {
-                setMessage({ type: "error", text: "Incorrect password." });
-            } else {
-                setMessage({ type: "error", text: "Failed to update password. " + error.message });
-            }
+            setMessage({ type: "error", text: passwordError(error, "Could not change your password. Try again in a moment.") });
         } finally {
             setLoading(false);
         }
@@ -122,7 +117,8 @@ export default function Profile({ user }) {
 
             // Keep the Auth identity until every owned document has been removed.
             // Batches are bounded, so large accounts can be deleted and retried.
-            const collections = ["clusters", "nodes", "disks", "containers"];
+            // ipIndex goes last: rules only let an IP claim go once no node holds that IP.
+            const collections = ["clusters", "nodes", "disks", "containers", "ipIndex"];
             for (const colName of collections) {
                 while (true) {
                     const q = query(collection(db, colName), where("userId", "==", user.uid), limit(400));
@@ -139,11 +135,7 @@ export default function Profile({ user }) {
             // Redirect handled by App.jsx
         } catch (error) {
             console.error(error);
-            if (error.code === 'auth/wrong-password') {
-                setMessage({ type: "error", text: "Incorrect password." });
-            } else {
-                setMessage({ type: "error", text: "Account deletion stopped. Some records may already be removed; you can retry safely. " + error.message });
-            }
+            setMessage({ type: "error", text: passwordError(error, "Account deletion stopped. Some records may already be removed; you can retry safely.") });
             setLoading(false);
         }
     };
@@ -168,283 +160,195 @@ export default function Profile({ user }) {
             setMessage({ type: "success", text: `Removed saved passwords from ${removed} legacy record(s).` });
         } catch (error) {
             console.error(error);
-            setMessage({ type: "error", text: `Cleanup stopped after ${removed} record(s). Retry to remove any remaining passwords. ${error.message}` });
+            setMessage({ type: "error", text: `Cleanup stopped after ${removed} record(s). Retry to remove any remaining passwords.` });
         } finally {
             setLoading(false);
         }
     };
+
+    const passwordError = (error, fallback) => (
+        ["auth/wrong-password", "auth/invalid-credential", "auth/invalid-login-credentials"].includes(error?.code)
+            ? "That password is incorrect."
+            : authErrorMessage(error, fallback)
+    );
 
     const reauthenticate = async (pass) => {
         const credential = EmailAuthProvider.credential(user.email, pass);
         await reauthenticateWithCredential(user, credential);
     };
 
+    const cancelReauth = () => {
+        setReauthMode(null);
+        setCurrentPassword("");
+    };
+
+    const reauthField = (labelText) => (
+        <div className="rounded-xl border border-line bg-raised p-4">
+            <label htmlFor="reauth-password" className="field-label">{labelText}</label>
+            <input
+                id="reauth-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="input"
+            />
+        </div>
+    );
+
     return (
-        <div className="flex-1 w-full h-full min-h-0 bg-[#060906] md:bg-transparent overflow-y-auto content-scrollbar md:pb-0 pb-20">
-            <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+        <div className="telemetry-settings flex-1 w-full h-full min-h-0 overflow-y-auto">
+            <div className="stagger-cards mx-auto w-full max-w-6xl space-y-4 pb-4">
 
                 {/* Header */}
-                <div className="flex items-center gap-4 mb-8">
-                    <div className="w-16 h-16 bg-gradient-to-br from-[#161D22] to-[#69639E]/30 rounded-full flex items-center justify-center border border-white/10 shadow-xl">
-                        <User size={32} className="text-[#A8C9AD]" weight="duotone" />
-                    </div>
-                    <div>
-                        <h1 className="text-3xl font-bold text-white tracking-tight">Account settings</h1>
-                        <p className="text-white/40">Manage your profile and security preferences.</p>
-                    </div>
-                </div>
+                <header className="telemetry-surface rounded-2xl border p-5">
+                    <h1 className="text-2xl font-semibold tracking-tight text-white">Account Settings</h1>
+                    <p className="mt-0.5 text-sm text-white/70">Manage your name, sign-in details, and stored data.</p>
+                </header>
 
                 {message.text && (
-                    <div ref={messageDialogRef} role="dialog" aria-modal="true" aria-labelledby="profile-message-title" tabIndex={-1} onKeyDown={onMessageDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-                        <div className="bg-[#0D100D] border border-white/10 p-6 rounded-2xl w-full max-w-sm shadow-2xl relative animate-scaleIn">
-                            <div className="flex flex-col items-center text-center">
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${message.type === "success"
-                                    ? "bg-green-500/10 text-green-400"
-                                    : "bg-red-500/10 text-red-400"
-                                    }`}>
-                                    {message.type === "success" ? <CheckCircle size={24} weight="fill" /> : <Warning size={24} weight="fill" />}
-                                </div>
-                                <h3 id="profile-message-title" className="text-lg font-bold text-white mb-2">
-                                    {message.type === "success" ? "Success" : "Error"}
-                                </h3>
-                                <p className="text-white/60 text-sm mb-6">
-                                    {message.text}
-                                </p>
-                                <button
-                                    onClick={() => setMessage({ type: "", text: "" })}
-                                    className="w-full py-2.5 bg-[#161D22] text-white rounded-xl font-bold hover:bg-white/10 transition-colors"
-                                >
-                                    Dismiss
+                    <div className="fixed bottom-4 left-1/2 z-50 w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg bg-surface shadow-2xl animate-scaleIn">
+                        <FormAlert tone={message.type === "success" ? "success" : "error"}>
+                            <div className="flex items-start justify-between gap-3">
+                                <span>{message.text}</span>
+                                <button type="button" onClick={() => setMessage({ type: "", text: "" })} aria-label="Dismiss message" title="Dismiss" className="-my-1 -mr-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-white/10">
+                                    <X size={14} weight="bold" />
                                 </button>
                             </div>
-                        </div>
+                        </FormAlert>
                     </div>
                 )}
 
+                <div className="stagger-cards grid gap-4 lg:grid-cols-2">
                 {/* 1. Profile Details */}
-                <section className="bg-[#0D100D] border border-white/5 rounded-3xl p-6 md:p-8 animate-fadeInUp" style={{ animationDelay: '0ms' }}>
-                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                        <User size={24} className="text-[#69639E]" weight="duotone" />
-                        Public profile
+                <section className="telemetry-surface rounded-2xl border p-5">
+                    <h2 className="mb-4 flex items-center gap-2 font-semibold text-white">
+                        <User size={18} className="text-accent" aria-hidden="true" />
+                        Profile
                     </h2>
 
-                    <div className="space-y-6 max-w-xl">
-                        <div>
-                            <label className="text-white/70 text-sm font-medium mb-2 block">Display name</label>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-[#69639E]/50 focus:bg-[#161D22]/80 outline-none transition-all pl-11"
-                                    placeholder="Your name"
-                                />
-                                <User size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleUpdateProfile}
-                            disabled={loading || name === user?.displayName}
-                            className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <FloppyDisk size={18} />
-                            Save profile
+                    <form onSubmit={(e) => { e.preventDefault(); handleUpdateProfile(); }} className="space-y-4">
+                        <Field label="Display Name">
+                            <input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} className="input" />
+                        </Field>
+                        <button type="submit" disabled={loading || name === (user?.displayName || "")} className="btn btn-secondary">
+                            <FloppyDisk size={18} aria-hidden="true" />
+                            Save Profile
                         </button>
-                    </div>
+                    </form>
                 </section>
 
                 {/* 2. Email Address */}
-                <section className="bg-[#0D100D] border border-white/5 rounded-3xl p-6 md:p-8 animate-fadeInUp" style={{ animationDelay: '100ms' }}>
-                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                        <Envelope size={24} className="text-blue-400" weight="duotone" />
-                        Email address
+                <section className="telemetry-surface rounded-2xl border p-5">
+                    <h2 className="mb-4 flex items-center gap-2 font-semibold text-white">
+                        <Envelope size={18} className="text-accent" aria-hidden="true" />
+                        Email Address
                     </h2>
 
-                    <div className="space-y-6 max-w-xl">
-                        <div>
-                            <label className="text-white/70 text-sm font-medium mb-2 block">Email</label>
-                            <div className="relative">
-                                <input
-                                    type="email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-blue-400/50 outline-none transition-all pl-11"
-                                    placeholder="your@email.com"
-                                />
-                                <Envelope size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-                            </div>
+                    <form onSubmit={(e) => { e.preventDefault(); handleUpdateEmail(); }} className="space-y-4">
+                        <Field label="Email">
+                            <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className="input" />
+                        </Field>
+
+                        {reauthMode === "email" && reauthField("Enter Your Current Password to Confirm")}
+
+                        <div className="flex flex-wrap gap-2">
+                            <button type="submit" disabled={loading || email === user?.email || (reauthMode === "email" && !currentPassword)} className="btn btn-secondary">
+                                <FloppyDisk size={18} aria-hidden="true" />
+                                {reauthMode === "email" ? "Confirm and Update" : "Update Email"}
+                            </button>
+                            {reauthMode === "email" && <button type="button" onClick={cancelReauth} className="btn btn-secondary">Cancel</button>}
                         </div>
-
-                        {reauthMode === "email" && (
-                            <div className="bg-[#161D22] p-4 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-2">
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm password to update email</label>
-                                <input
-                                    type="password"
-                                    value={currentPassword}
-                                    onChange={(e) => setCurrentPassword(e.target.value)}
-                                    className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none mb-3"
-                                    placeholder="Current password"
-                                />
-                            </div>
-                        )}
-
-                        <button
-                            onClick={handleUpdateEmail}
-                            disabled={loading || email === user?.email}
-                            className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <FloppyDisk size={18} />
-                            {reauthMode === "email" ? "Confirm & update" : "Update email"}
-                        </button>
-                    </div>
+                    </form>
                 </section>
 
                 {/* 3. Security */}
-                <section className="bg-[#0D100D] border border-white/5 rounded-3xl p-6 md:p-8 animate-fadeInUp" style={{ animationDelay: '200ms' }}>
-                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                        <LockKey size={24} className="text-red-400" weight="duotone" />
-                        Security
+                <section className="telemetry-surface rounded-2xl border p-5 lg:col-span-2">
+                    <h2 className="mb-4 flex items-center gap-2 font-semibold text-white">
+                        <LockKey size={18} className="text-accent" aria-hidden="true" />
+                        Password
                     </h2>
 
-                    <div className="space-y-6 max-w-xl">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-white/70 text-sm font-medium mb-2 block">New password</label>
-                                <input
-                                    type="password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-red-400/50 outline-none transition-all"
-                                    placeholder="New password"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm password</label>
-                                <input
-                                    type="password"
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    className="w-full h-12 bg-[#161D22] text-white px-4 rounded-xl border border-white/5 focus:border-red-400/50 outline-none transition-all"
-                                    placeholder="Confirm new password"
-                                />
-                            </div>
+                    <form onSubmit={(e) => { e.preventDefault(); handleUpdatePassword(); }} className="max-w-3xl space-y-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <Field label="New Password" hint="At least 6 characters.">
+                                <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="input" />
+                            </Field>
+                            <Field label="Confirm New Password">
+                                <input type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="input" />
+                            </Field>
                         </div>
 
-                        {reauthMode === "password" && (
-                            <div className="bg-[#161D22] p-4 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-2">
-                                <label className="text-white/70 text-sm font-medium mb-2 block">Confirm current password</label>
-                                <input
-                                    type="password"
-                                    value={currentPassword}
-                                    onChange={(e) => setCurrentPassword(e.target.value)}
-                                    className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none mb-3"
-                                    placeholder="Current password"
-                                />
-                            </div>
-                        )}
+                        {reauthMode === "password" && reauthField("Enter Your Current Password to Confirm")}
 
-                        <button
-                            onClick={handleUpdatePassword}
-                            disabled={loading || !password}
-                            className="px-6 py-3 bg-[#161D22] hover:bg-[#1c252b] text-white rounded-xl font-bold text-sm transition-all border border-white/5 hover:border-white/10 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <FloppyDisk size={18} />
-                            {reauthMode === "password" ? "Confirm & change" : "Change password"}
-                        </button>
-                    </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button type="submit" disabled={loading || !password || (reauthMode === "password" && !currentPassword)} className="btn btn-secondary">
+                                <FloppyDisk size={18} aria-hidden="true" />
+                                {reauthMode === "password" ? "Confirm and Change" : "Change Password"}
+                            </button>
+                            {reauthMode === "password" && <button type="button" onClick={cancelReauth} className="btn btn-secondary">Cancel</button>}
+                        </div>
+                    </form>
                 </section>
 
-                <section className="bg-[#0D100D] border border-amber-500/20 rounded-3xl p-6 md:p-8">
-                    <h2 className="text-xl font-bold text-white mb-3">Legacy saved passwords</h2>
-                    <p className="text-white/70 text-sm max-w-xl mb-4">
+                <section className="telemetry-surface rounded-2xl border p-5">
+                    <h2 className="mb-3 font-semibold text-white">Legacy Saved Passwords</h2>
+                    <p className="mb-4 max-w-xl text-sm text-white/70">
                         ClusterEye no longer saves node or container passwords. Older records may still contain them in Firestore.
-                        Remove them here after copying anything you need to a password manager. This cannot be undone.
+                        Remove them here after copying anything you need to a password manager. This can't be undone.
                     </p>
                     {purgeConfirm ? (
-                        <div className="flex flex-wrap gap-3">
-                            <button type="button" onClick={handlePurgePasswords} disabled={loading} className="px-4 py-2 bg-amber-600 text-white rounded-lg disabled:opacity-50">
-                                {loading ? "Removing..." : "Confirm removal"}
+                        <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={handlePurgePasswords} disabled={loading} className="btn btn-danger-solid">
+                                {loading ? "Removing..." : "Remove Saved Passwords"}
                             </button>
-                            <button type="button" onClick={() => setPurgeConfirm(false)} disabled={loading} className="px-4 py-2 bg-[#161D22] text-white rounded-lg">Cancel</button>
+                            <button type="button" onClick={() => setPurgeConfirm(false)} disabled={loading} className="btn btn-secondary">Cancel</button>
                         </div>
                     ) : (
-                        <button type="button" onClick={() => setPurgeConfirm(true)} disabled={loading} className="px-4 py-2 bg-[#161D22] text-amber-200 border border-amber-500/30 rounded-lg disabled:opacity-50">
-                            Remove legacy saved passwords
+                        <button type="button" onClick={() => setPurgeConfirm(true)} disabled={loading} className="btn btn-secondary">
+                            Remove Saved Passwords...
                         </button>
                     )}
                 </section>
 
                 {/* 4. Danger Zone */}
-                <section className="bg-[#0D100D] border border-red-500/20 rounded-3xl p-6 md:p-8 animate-fadeInUp mt-8" style={{ animationDelay: '300ms' }}>
-                    <h2 className="text-xl font-bold text-red-500 mb-6 flex items-center gap-2">
-                        <Trash size={24} weight="duotone" />
-                        Danger zone
+                <section className="telemetry-surface rounded-2xl border border-alert/30 p-5">
+                    <h2 className="mb-4 flex items-center gap-2 font-semibold text-alert">
+                        <Trash size={18} aria-hidden="true" />
+                        Delete Account
                     </h2>
 
-                    <div className="space-y-4 max-w-xl">
-                        <p className="text-zinc-400 text-sm">
-                            Once you delete your account, there is no going back. All of your clusters, nodes, and configurations will be permanently deleted.
+                    <div className="max-w-xl space-y-4">
+                        <p className="text-sm text-white/70">
+                            This permanently deletes your account and all of your clusters, nodes, disks, and containers. It can't be undone.
                         </p>
 
-                        {!reauthMode || reauthMode !== "delete" ? (
-                            <button
-                                onClick={() => setReauthMode("delete")}
-                                className="px-6 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-xl font-bold text-sm transition-all border border-red-500/10 flex items-center gap-2"
-                            >
-                                <Trash size={18} />
-                                Delete account
+                        {reauthMode !== "delete" ? (
+                            <button type="button" onClick={() => { setCurrentPassword(""); setReauthMode("delete"); }} className="btn btn-danger">
+                                Delete Account...
                             </button>
                         ) : (
-                            <div className="bg-[#161D22] p-6 rounded-xl border border-red-500/20 animate-in fade-in slide-in-from-top-2 space-y-4">
-                                <div className="text-red-200 text-sm font-semibold">
-                                    Are you absolutely sure?
-                                </div>
-                                <div>
-                                    <label className="text-white/70 text-sm font-medium mb-2 block">1. Enter current password</label>
-                                    <input
-                                        type="password"
-                                        value={currentPassword}
-                                        onChange={(e) => setCurrentPassword(e.target.value)}
-                                        className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none focus:border-red-500/50"
-                                        placeholder="Current password"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-white/70 text-sm font-medium mb-2 block">2. Type "delete" to confirm</label>
-                                    <input
-                                        type="text"
-                                        value={deleteConfirmText}
-                                        onChange={(e) => setDeleteConfirmText(e.target.value)}
-                                        className="w-full h-10 bg-black/30 text-white px-3 rounded-lg border border-white/10 outline-none focus:border-red-500/50"
-                                        placeholder='Type "delete"'
-                                    />
-                                </div>
+                            <form onSubmit={(e) => { e.preventDefault(); handleDeleteAccount(); }} className="space-y-4 rounded-xl border border-alert/30 bg-raised p-4">
+                                <Field label="Current Password">
+                                    <input type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} className="input" />
+                                </Field>
+                                <Field label='Type "delete" to Confirm'>
+                                    <input type="text" autoComplete="off" spellCheck={false} value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} className="input" />
+                                </Field>
 
-                                <div className="flex gap-3 pt-2">
-                                    <button
-                                        onClick={handleDeleteAccount}
-                                        disabled={loading || deleteConfirmText !== "delete" || !currentPassword}
-                                        className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold text-sm transition-all shadow-lg shadow-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {loading ? `Removing data (${deleteProgress})...` : "Yes, permanently delete"}
+                                <div className="flex flex-wrap gap-2">
+                                    <button type="submit" disabled={loading || deleteConfirmText !== "delete" || !currentPassword} className="btn btn-danger-solid">
+                                        {loading ? `Removing Data (${deleteProgress})...` : "Permanently Delete Account"}
                                     </button>
-                                    <button
-                                        onClick={() => {
-                                            setReauthMode(null);
-                                            setDeleteConfirmText("");
-                                            setCurrentPassword("");
-                                        }}
-                                        disabled={loading}
-                                        className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg font-medium text-sm transition-all"
-                                    >
+                                    <button type="button" onClick={() => { cancelReauth(); setDeleteConfirmText(""); }} disabled={loading} className="btn btn-secondary">
                                         Cancel
                                     </button>
                                 </div>
-                            </div>
+                            </form>
                         )}
                     </div>
                 </section>
+                </div>
             </div>
         </div>
     );

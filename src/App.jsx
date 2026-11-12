@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { auth } from "./firebaseConfig";
+import { auth, SIGNUP_ENABLED } from "./firebaseConfig";
 import Navbar from "./components/Navbar";
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
@@ -27,11 +27,11 @@ class AppErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     const isChunkError = /dynamically imported module|loading chunk|failed to fetch/i.test(this.state.error.message || "");
     return (
-      <main className="min-h-screen bg-[#060906] text-white grid place-items-center p-6">
-        <div role="alert" className="max-w-md rounded-2xl border border-white/10 bg-[#0D100D] p-6 text-center">
+      <main className="telemetry-theme min-h-screen text-white grid place-items-center p-6">
+        <div role="alert" className="max-w-md telemetry-surface rounded-2xl border p-6 text-center">
           <h1 className="text-xl font-bold mb-2">{isChunkError ? "A new version is available" : "ClusterEye could not open this page"}</h1>
           <p className="text-white/70 text-sm mb-5">{isChunkError ? "Refresh once to load the latest deployed files." : "Refresh the application and try again."}</p>
-          <button type="button" onClick={() => window.location.reload()} className="rounded-xl bg-[#69639E] px-5 py-2.5 font-semibold hover:bg-[#7c75b8]">Refresh application</button>
+          <button type="button" onClick={() => window.location.reload()} className="btn btn-primary">Refresh application</button>
         </div>
       </main>
     );
@@ -40,15 +40,16 @@ class AppErrorBoundary extends Component {
 
 function PageLoading() {
   return (
-    <main className="flex-1 min-h-0 grid place-items-center text-white/60" role="status">
-      Loading page...
+    <main className="flex-1 min-h-0">
+      <div className="boot" role="status" aria-label="Loading page"><span></span></div>
     </main>
   );
 }
 
 function RouteErrorBoundary({ children }) {
   const location = useLocation();
-  return <AppErrorBoundary key={location.key}>{children}</AppErrorBoundary>;
+  // Keyed by path, so a new page clears an error, but a query change (such as ?open=) keeps page state.
+  return <AppErrorBoundary key={location.pathname}>{children}</AppErrorBoundary>;
 }
 
 export default function App() {
@@ -63,7 +64,7 @@ export default function App() {
     return unsub;
   }, []);
 
-  if (loading) return <div className="text-white text-center mt-20">Loading...</div>;
+  if (loading) return <div className="boot" role="status" aria-label="Loading ClusterEye"><span></span></div>;
 
   return (
     <Router>
@@ -71,14 +72,14 @@ export default function App() {
         <RouteErrorBoundary>
           <Suspense fallback={<PageLoading />}>
             <Routes>
-              <Route path="/signup" element={<Signup />} />
+              {SIGNUP_ENABLED && <Route path="/signup" element={<Signup />} />}
               <Route path="/" element={<Login onLogin={setUser} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </RouteErrorBoundary>
       ) : (
-        <div className="md:h-screen flex flex-col p-4 md:p-6 gap-4 md:gap-6 md:overflow-hidden min-h-screen bg-[#060906]">
+        <div className="telemetry-theme flex min-h-screen min-h-dvh flex-col gap-3 p-3 sm:p-4 lg:h-screen xl:px-6 2xl:px-8 min-[120rem]:px-10 min-[160rem]:px-14 lg:h-dvh lg:overflow-hidden">
           <Navbar user={user} />
           <RouteErrorBoundary>
             <Suspense fallback={<PageLoading />}>

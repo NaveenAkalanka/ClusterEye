@@ -12,11 +12,15 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import { MagnifyingGlass, Funnel, XCircle, Plus, CaretCircleRight, Globe, HardDrives, Circuitry, CaretUp, CaretDown } from "@phosphor-icons/react";
+import { CaretCircleRight, Plus, XCircle } from "@phosphor-icons/react";
 import AddClusterModal from "../components/AddClusterModal";
 import ClusterModal from "../components/ClusterModal";
 import LoadError from "../components/LoadError";
 import LoadingState from "../components/LoadingState";
+import SidebarInsight from "../components/SidebarInsight";
+import useOpenParam from "../components/useOpenParam";
+import { EmptyState, SearchField, SortHeader, StatCard, ToolButton } from "../components/ui";
+import { DEFAULT_CLUSTER_COLOR, fmtBytes, openOnRowClick, sortRecords } from "../utils/format";
 import { isValidSubnetMask } from "../utils/network";
 
 /* ----------------------------- Component ----------------------------- */
@@ -36,7 +40,7 @@ export default function Clusters({ uid }) {
   const [name, setName] = useState("");
   const [ipAddress, setIpAddress] = useState("");
   const [subnetMask, setSubnetMask] = useState("255.255.255.0");
-  const [selectedColor, setSelectedColor] = useState("#69639E");
+  const [selectedColor, setSelectedColor] = useState(DEFAULT_CLUSTER_COLOR);
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -123,10 +127,10 @@ export default function Clusters({ uid }) {
     const ipRegex =
       /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
     if (!ipRegex.test(ipAddress))
-      return setCreateError("Invalid IP format (must be X.X.X.X).");
+      return setCreateError("Enter a complete IPv4 address, such as 192.168.1.1.");
 
     if (!isValidSubnetMask(subnetMask))
-      return setCreateError("Invalid subnet mask format.");
+      return setCreateError("Enter a valid subnet mask, such as 255.255.255.0.");
 
     // Check duplicates
     const nameExists = clusters.some(
@@ -161,7 +165,7 @@ export default function Clusters({ uid }) {
       setAddOpen(false);
     } catch (e) {
       console.error(e);
-      setCreateError("Could not create cluster.");
+      setCreateError("Could not add the cluster. Check your connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -179,27 +183,7 @@ export default function Clusters({ uid }) {
       );
     }
 
-    if (sortConfig.key) {
-      res.sort((a, b) => {
-        let A = a[sortConfig.key];
-        let B = b[sortConfig.key];
-
-        // Handle numeric fields safely
-        if (["total", "used", "free", "nodes", "disks"].includes(sortConfig.key)) {
-          A = Number(A || 0);
-          B = Number(B || 0);
-        } else {
-          A = (A || "").toString().toLowerCase();
-          B = (B || "").toString().toLowerCase();
-        }
-
-        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
-        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return res;
+    return sortRecords(res, sortConfig);
   }, [clusters, search, sortConfig]);
 
   function handleSort(key) {
@@ -226,177 +210,144 @@ export default function Clusters({ uid }) {
     }
   }, [clusters]);
 
+  const clusterDistribution = useMemo(() => {
+    const maxNodes = Math.max(0, ...clusters.map((cluster) => Number(cluster.nodes) || 0));
+    return [...clusters]
+      .sort((a, b) => (Number(b.nodes) || 0) - (Number(a.nodes) || 0) || (a.cluster || "").localeCompare(b.cluster || ""))
+      .map((cluster) => {
+        const count = Number(cluster.nodes) || 0;
+        return {
+          key: cluster.id,
+          label: cluster.cluster || "Unnamed cluster",
+          color: cluster.color || DEFAULT_CLUSTER_COLOR,
+          meta: `${count} ${count === 1 ? "node" : "nodes"}`,
+          percentage: maxNodes ? (count / maxNodes) * 100 : 0,
+          detail: fmtBytes(cluster.total || 0),
+        };
+      });
+  }, [clusters]);
+
   /* ------------------------------ UI ------------------------------ */
+  useOpenParam(clusters, !loading, setViewClusterId);
+
   if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
 
+  const rowColumns = "grid-cols-[0.5rem_minmax(7rem,1.4fr)_minmax(8rem,1fr)_minmax(7rem,1fr)_3rem_4.5rem_4.5rem_4.5rem_3rem_minmax(4rem,1fr)_2rem]";
+  const usedPercent = (c) => (c.total > 0 ? (Number(c.used || 0) / c.total) * 100 : 0);
+
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+    <div className="telemetry-inventory flex min-h-0 w-full flex-1 flex-col gap-3 sm:gap-4 lg:flex-row">
 
       {/* LEFT SIDEBAR */}
-      <aside className="w-full lg:w-80 bg-[#0D100D] rounded-3xl p-6 flex flex-col gap-6 shrink-0 border border-white/5 h-fit lg:h-full lg:overflow-y-auto content-scrollbar">
+      <aside className="telemetry-surface flex h-fit w-full shrink-0 flex-col gap-4 rounded-2xl border p-4 sm:p-5 lg:h-full lg:w-72 lg:overflow-y-auto">
 
-        {/* Search */}
-        <div className="relative w-full h-12 rounded-xl p-[2px] bg-gradient-to-r from-[#A8C9AD] to-[#69639E] transition-all">
-          <div className="w-full h-full bg-[#161D22] rounded-[10px] flex items-center px-4 gap-3">
-            <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
-            <input
-              type="text"
-              placeholder="Search Clusters..."
-              aria-label="Search clusters"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
-            />
-          </div>
+        <div>
+          <h1 className="text-lg font-semibold text-white">Clusters</h1>
         </div>
 
-        {/* Action Grid */}
-        <div className="grid grid-cols-5 gap-2 h-12">
-          <button
-            onClick={() => setAddOpen(true)}
-            className="col-span-4 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] rounded-xl flex items-center justify-center gap-2 text-white font-bold text-xs hover:opacity-90 transition-opacity shadow-lg cursor-pointer"
-          >
+        <SearchField value={search} onChange={setSearch} label="Search clusters" placeholder="Search Clusters..." />
+
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setAddOpen(true)} className="btn btn-primary min-w-0 flex-1">
             <Plus size={16} weight="bold" />
-            <span>Add Cluster</span>
+            Add Cluster
           </button>
-          <button
-            onClick={clearFilters}
-            aria-label="Clear cluster search and sorting"
-            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
-          >
-            <XCircle size={18} />
-          </button>
+          <ToolButton label="Clear Search and Sorting" disabled={!search && !sortConfig.key} onClick={clearFilters}><XCircle size={18} /></ToolButton>
         </div>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-3 lg:grid-cols-1 gap-2 lg:gap-3 lg:flex-1">
-          <StatCard label="Total Clusters" value={stats.count} icon={Globe} fill />
-          <StatCard label="Total Storage" value={stats.storage} icon={HardDrives} fill />
-          <StatCard label="Total Nodes" value={stats.nodes} icon={Circuitry} fill />
+        <div className="hidden grid-cols-2 gap-2 sm:grid sm:grid-cols-3 lg:grid-cols-2">
+          <StatCard label="Total Clusters" value={stats.count} primary loading={loading} />
+          <StatCard label="Total Storage" value={stats.storage} loading={loading} />
+          <StatCard label="Total Nodes" value={stats.nodes} loading={loading} />
         </div>
 
+        <SidebarInsight
+          title="Nodes per Cluster"
+          description="Relative node count, with recorded storage"
+          items={clusterDistribution}
+          emptyMessage="This will fill in after the first cluster is created."
+        />
       </aside>
 
       {/* RIGHT CONTENT */}
-      <section className="flex-1 bg-[#0D100D] rounded-3xl border border-white/5 flex flex-col overflow-hidden relative shadow-2xl">
-        <div className="flex-1 overflow-auto p-4 content-scrollbar">
+      <section aria-label="Cluster list" className="telemetry-surface relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border">
+        <div className="flex-1 overflow-auto p-4">
           {loading ? (
-            <LoadingState label="Loading clusters" rows={6} className="px-4" />
+            <LoadingState label="Loading clusters" rows={6} />
           ) : filteredClusters.length === 0 ? (
-            <div className="flex h-full flex-col gap-3 items-center justify-center text-white/70 text-sm">
-              <p>{search ? "No clusters match your search." : "Start by creating a cluster. You can then add disks and nodes."}</p>
-              {!search && <button type="button" onClick={() => setAddOpen(true)} className="text-[#A8C9AD] underline">Create cluster</button>}
-            </div>
+            <EmptyState
+              message={search ? "No clusters match your search." : "Start by creating a cluster. You can then add disks and nodes."}
+              action={search
+                ? <button type="button" onClick={clearFilters} className="btn btn-secondary">Clear Search</button>
+                : <button type="button" onClick={() => setAddOpen(true)} className="btn btn-primary">Add Cluster</button>}
+            />
           ) : (
-            <div className="space-y-2">
+            <div className="stagger-rows space-y-2">
               {/* Header Row (Desktop) */}
-              <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 px-6 py-2 text-xs font-bold text-white/50 tracking-wider items-center select-none">
-                <div className="w-2"></div> {/* Color Dot Spacer */}
-                <button type="button" onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Cluster Name {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("ipAddress")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  IP Address {sortConfig.key === "ipAddress" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("subnetMask")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Subnet Mask {sortConfig.key === "subnetMask" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("disks")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Disks {sortConfig.key === "disks" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Total {sortConfig.key === "total" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Used {sortConfig.key === "used" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Free {sortConfig.key === "free" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Nodes {sortConfig.key === "nodes" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <div className="text-left cursor-default">Usage</div>
+              <div className={`mb-3 hidden items-center gap-3 px-4 xl:grid ${rowColumns}`}>
+                <div></div>
+                <SortHeader label="Cluster" sortKey="cluster" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="IP Address" sortKey="ipAddress" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Subnet Mask" sortKey="subnetMask" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Disks" sortKey="disks" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Total" sortKey="total" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Allocated" sortKey="used" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Free" sortKey="free" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Nodes" sortKey="nodes" sortConfig={sortConfig} onSort={handleSort} />
+                <div className="text-xs font-semibold text-white/70">Usage</div>
               </div>
 
               {/* Rows */}
               {filteredClusters.map(c => (
                 <div key={c.id}>
                   {/* Desktop Row */}
-                  <div className="hidden md:grid grid-cols-[auto_1.5fr_1.2fr_1fr_0.5fr_1fr_1fr_1fr_0.5fr_2fr] gap-4 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5">
-
-                    {/* Color Dot */}
-                    <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
-
-                    <div className="truncate">{c.cluster}</div>
-
-                    <div className="text-white/70 font-mono text-sm truncate">{c.ipAddress || "—"}</div>
-                    <div className="text-white/50 font-mono text-xs truncate">{c.subnetMask || "/24"}</div>
-
-                    <div className="text-white/80 text-sm">{c.disks || 0}</div>
-
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes(c.total || 0)}</div>
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes(c.used || 0)}</div>
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes((c.total || 0) - (c.used || 0))}</div>
-
-                    <div className="text-white/80 text-sm">{c.nodes || 0}</div>
-
-                    {/* Progress Bar with Percentage */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full transition-all duration-500 rounded-full"
-                          style={{
-                            width: `${Math.min(100, (c.used / c.total) * 100 || 0)}%`,
-                            backgroundColor: c.color || "#69639E" // Use cluster color for bar
-                          }}
-                        ></div>
+                  <div onClick={openOnRowClick(() => setViewClusterId(c.id))} className={`hidden h-12 cursor-pointer items-center gap-3 rounded-xl border border-line bg-raised px-4 text-sm font-medium text-white transition-colors hover:border-line-strong hover:bg-raised-hover xl:grid ${rowColumns}`}>
+                    <div className="size-2 rounded-full" style={{ backgroundColor: c.color || DEFAULT_CLUSTER_COLOR }}></div>
+                    <div className="truncate" title={c.cluster}>{c.cluster}</div>
+                    <div className="truncate font-mono font-normal text-white/80">{c.ipAddress || "—"}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/70">{c.subnetMask || "255.255.255.0"}</div>
+                    <div className="font-mono font-normal text-white/80">{c.disks || 0}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes(c.total || 0)}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes(c.used || 0)}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes((c.total || 0) - (c.used || 0))}</div>
+                    <div className="font-mono font-normal text-white/80">{c.nodes || 0}</div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div className="bar-fill h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, usedPercent(c))}%`, backgroundColor: c.color || DEFAULT_CLUSTER_COLOR }}></div>
                       </div>
-                      <span className="text-xs text-white/50 w-8 text-right font-mono">
-                        {((c.used / c.total) * 100 || 0).toFixed(0)}%
-                      </span>
-                      <button type="button"
-                        onClick={() => setViewClusterId(c.id)}
-                        className="text-[#A8C9AD] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded"
-                        aria-label={`View ${c.cluster}`}
-                      >
-                        <CaretCircleRight size={20} weight="fill" />
-                      </button>
+                      <span className="w-8 shrink-0 text-right font-mono text-xs font-normal text-white/70">{usedPercent(c).toFixed(0)}%</span>
                     </div>
+                    <button type="button" onClick={() => setViewClusterId(c.id)} className="row-open" aria-label={`View ${c.cluster}`}>
+                      <CaretCircleRight size={20} weight="fill" />
+                    </button>
                   </div>
 
                   {/* Mobile Card */}
-                  <div className="md:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-4 gap-3 text-white transition-all border border-white/5 group">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)]" style={{ backgroundColor: c.color || "#69639E" }}></div>
-                        <span className="font-bold text-sm">{c.cluster}</span>
+                  <div onClick={openOnRowClick(() => setViewClusterId(c.id))} className="flex cursor-pointer flex-col gap-3 rounded-xl border border-line bg-raised p-3 text-white xl:hidden">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="size-2 shrink-0 rounded-full" style={{ backgroundColor: c.color || DEFAULT_CLUSTER_COLOR }}></div>
+                        <span className="truncate text-sm font-bold">{c.cluster}</span>
                       </div>
-                      <button type="button" onClick={() => setViewClusterId(c.id)} aria-label={`View ${c.cluster}`} className="text-[#A8C9AD] p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded">
-                        <CaretCircleRight size={24} weight="fill" />
+                      <button type="button" onClick={() => setViewClusterId(c.id)} aria-label={`View ${c.cluster}`} className="row-open -mr-1 -mt-1">
+                        <CaretCircleRight size={20} weight="fill" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-sm text-white/70">
-                      <div>IP: <span className="text-white">{c.ipAddress}</span></div>
-                      <div>Nodes: <span className="text-white">{c.nodes}</span></div>
-                      <div>Disks: <span className="text-white">{c.disks}</span></div>
-                      <div>Total: <span className="text-white">{fmtBytes(c.total)}</span></div>
-                      <div>Used: <span className="text-white">{fmtBytes(c.used || 0)}</span></div>
-                      <div>Free: <span className="text-white">{fmtBytes((c.total || 0) - (c.used || 0))}</span></div>
-                    </div>
-                    <div className="mt-1">
-                      <div className="flex justify-between text-xs mb-1 text-white/50">
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3 md:grid-cols-6">
+                      {[["IP Address", c.ipAddress], ["Nodes", c.nodes || 0], ["Disks", c.disks || 0], ["Total", fmtBytes(c.total)], ["Allocated", fmtBytes(c.used)], ["Free", fmtBytes((c.total || 0) - (c.used || 0))]].map(([label, value]) => (
+                        <div key={label} className="min-w-0">
+                          <dt className="font-semibold text-white/70">{label}</dt>
+                          <dd className="truncate font-mono text-white/90">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div>
+                      <div className="mb-1 flex justify-between text-xs text-white/70">
                         <span>Usage</span>
-                        <span>{((c.used / c.total) * 100 || 0).toFixed(1)}%</span>
+                        <span className="font-mono">{usedPercent(c).toFixed(0)}%</span>
                       </div>
-                      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full transition-all duration-500 rounded-full"
-                          style={{
-                            width: `${Math.min(100, (c.used / c.total) * 100 || 0)}%`,
-                            backgroundColor: c.color || "#69639E"
-                          }}
-                        ></div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <div className="bar-fill h-full rounded-full transition-[width] duration-500" style={{ width: `${Math.min(100, usedPercent(c))}%`, backgroundColor: c.color || DEFAULT_CLUSTER_COLOR }}></div>
                       </div>
                     </div>
                   </div>
@@ -410,13 +361,12 @@ export default function Clusters({ uid }) {
       {/* MODALS */}
       {addOpen && (
         <AddClusterModal
-          open={addOpen}
           onClose={() => {
             setAddOpen(false);
             setName("");
             setIpAddress("");
             setSubnetMask("255.255.255.0");
-            setSelectedColor("#69639E");
+            setSelectedColor(DEFAULT_CLUSTER_COLOR);
             setCreateError("");
           }}
           handleCreate={handleCreate}
@@ -451,28 +401,6 @@ export default function Clusters({ uid }) {
     </div>
   );
 }
-/* ---------------------------- Components ---------------------------- */
-
-function StatCard({ label, value, fill }) {
-  return (
-    <div className={`w-full ${fill ? "flex-1" : "h-24"} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between shadow-md group hover:border-[#69639E]/50 transition-all`}>
-      <div className={`text-white/70 font-medium tracking-tight ${fill ? "text-sm md:text-xl" : "text-sm"}`}>{label}</div>
-      <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-3xl md:text-7xl" : "text-3xl"}`}>{value}</div>
-    </div>
-  );
-}
-
-/* ---------------------------- Helpers ---------------------------- */
-
-function fmtBytes(bytes) {
-  const b = Number(bytes || 0);
-  const GB = 1_000_000_000;
-  const TB = 1_000_000_000_000;
-  if (b === 0) return "0 GB";
-  if (b < GB) return `${(b / 1_000_000).toFixed(0)} MB`;
-  if (b < 1000 * GB) return `${(b / GB).toFixed(b % GB === 0 ? 0 : 1)} GB`;
-  return `${(b / TB).toFixed(1)} TB`;
-}
 
 function normalizeName(s) {
   return (s || "").trim().replace(/\s+/g, " ");
@@ -498,7 +426,7 @@ async function recomputeAndPersist({ clusters, disks, nodes }) {
     }
   }
 
-  // NOTE: disk.used is maintained by Nodes.jsx/NodeModal.jsx via increment() — do NOT
+  // NOTE: disk.used is maintained by Nodes.jsx/NodeModal.jsx in transactions — do NOT
   // overwrite it here or we race with in-flight allocation changes. We only persist
   // derived fields that no one else maintains: free and the node count using each disk.
   const diskUpdates = [];

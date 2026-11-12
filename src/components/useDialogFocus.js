@@ -11,7 +11,11 @@ export default function useDialogFocus(onClose, enabled = true, focusKey = 0) {
     if (!enabled) return;
     const previousFocus = document.activeElement;
     const dialog = dialogRef.current;
-    const first = dialog?.querySelector(FOCUSABLE);
+    // Land on the task, not the Close button, so Enter can't dismiss a form by accident.
+    const first = dialog?.querySelector("[data-autofocus]")
+      || dialog?.querySelector('input:not([disabled]):not([readonly]), [role="combobox"]:not([disabled])')
+      || dialog?.querySelector("footer button:not([disabled])")
+      || dialog?.querySelector(FOCUSABLE);
     (first || dialog)?.focus();
 
     return () => {

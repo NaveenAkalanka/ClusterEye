@@ -1,30 +1,36 @@
-import React, { useState } from "react";
-import { XCircle, HardDrives } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 import { doc, deleteDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebaseConfig";
+import { DEFAULT_CLUSTER_COLOR, fmtBytes } from "../utils/format";
 import CustomSelect from "./CustomSelect";
+import Dialog from "./Dialog";
 import NumberStepper from "./NumberStepper";
-import useDialogFocus from "./useDialogFocus";
+import { Field, FormAlert, RelatedLinks } from "./ui";
+
+const savedValues = (disk) => ({
+    disk: disk.disk,
+    model: disk.model,
+    role: disk.role,
+    cluster: disk.cluster,
+    totalGB: (disk.total || 0) / 1_000_000_000,
+});
 
 export default function DiskModal({ disk, onClose, allNodes, clusters, allDisks = [] }) {
     const [editMode, setEditMode] = useState(false);
 
     // Local state for editing
-    const [local, setLocal] = useState({
-        disk: disk.disk,
-        model: disk.model,
-        role: disk.role,
-        cluster: disk.cluster,
-        totalGB: (disk.total || 0) / 1_000_000_000
-    });
-    // ... (omitted parts handled by replace_file_content logic if not matching exactly, but we need exact match for huge blocks)
-    // I will target just the import area and the specific field to be safe.
-
+    const [local, setLocal] = useState(() => savedValues(disk));
 
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const [confirmDelete, setConfirmDelete] = useState(false);
-    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose, true, confirmDelete);
+
+    // Show the saved record again after Cancel or Save.
+    useEffect(() => {
+        if (!editMode) setLocal(savedValues(disk));
+    }, [disk, editMode]);
+
+    const dirty = editMode && JSON.stringify(local) !== JSON.stringify(savedValues(disk));
 
     /* ---------------- Actions ---------------- */
     async function handleSave() {
@@ -40,7 +46,7 @@ export default function DiskModal({ disk, onClose, allNodes, clusters, allDisks 
 
         // Resize Validation: Cannot shrink below current usage
         if (newTotal < disk.used) {
-            return setError(`Cannot reduce size below current usage (${fmtBytes(disk.used)}). Deallocate nodes first.`);
+            return setError(`Total size can't go below the ${fmtBytes(disk.used)} already allocated. Remove allocations first.`);
         }
 
         // Cluster reassignment guard: cannot move cluster while allocations exist
@@ -96,7 +102,7 @@ export default function DiskModal({ disk, onClose, allNodes, clusters, allDisks 
         // Strict Check: Cannot delete if assigned to ANY node
         const linkedNodes = allNodes.filter(n => n.allocations?.some(a => a.diskId ? a.diskId === disk.id : a.disk === disk.disk));
         if (linkedNodes.length > 0) {
-            setError(`Cannot delete. Disk is in use by ${linkedNodes.length} node(s). Details: ${linkedNodes.map(n => n.node).join(", ")}`);
+            setError(`This disk is allocated to ${linkedNodes.map(n => n.node).join(", ")}. Remove those allocations first.`);
             return; // Do not proceed to confirmation
         }
 
@@ -111,196 +117,110 @@ export default function DiskModal({ disk, onClose, allNodes, clusters, allDisks 
             onClose();
         } catch (e) {
             console.error(e);
-            setError("Failed to delete.");
+            setError("Could not delete the disk. Check your connection and try again.");
             setSaving(false);
         }
     }
 
-    /* ---------------- UI ---------------- */
+    const totalBytes = Number(local.totalGB || 0) * 1_000_000_000;
+    const usedPercent = totalBytes > 0 ? (Number(disk.used || 0) / totalBytes) * 100 : 0;
+
+    const footer = confirmDelete ? (
+        <>
+            <button type="button" onClick={() => { setConfirmDelete(false); setError(""); }} className="btn btn-secondary">Cancel</button>
+            <button type="button" onClick={handleDelete} disabled={saving} className="btn btn-danger-solid">
+                {saving ? "Deleting..." : "Delete Disk"}
+            </button>
+        </>
+    ) : editMode ? (
+        <>
+            <button type="button" onClick={() => { setEditMode(false); setError(""); }} className="btn btn-secondary">Cancel</button>
+            <button type="button" onClick={handleSave} disabled={saving} className="btn btn-primary">
+                {saving ? "Saving..." : "Save Changes"}
+            </button>
+        </>
+    ) : (
+        <>
+            <button type="button" onClick={handleDelete} className="btn btn-danger mr-auto">Delete</button>
+            <button type="button" onClick={() => setEditMode(true)} className="btn btn-secondary">Edit</button>
+        </>
+    );
+
+    const diskCluster = clusters.find((c) => disk.clusterId ? c.id === disk.clusterId : c.cluster === disk.cluster);
+    const diskNodes = allNodes.filter((n) => n.allocations?.some((a) => a.diskId ? a.diskId === disk.id : a.disk === disk.disk));
+
     return (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Disk ${disk.disk}`} tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-            <div className="bg-[#0D100D] rounded-2xl border border-white/10 w-full max-w-lg p-4 md:p-6 overflow-y-auto max-h-[90dvh] custom-scrollbar shadow-2xl">
+        <Dialog
+            title={confirmDelete ? "Delete Disk?" : editMode ? "Edit Disk" : disk.disk}
+            onClose={onClose}
+            dirty={dirty}
+            focusKey={`${editMode}-${confirmDelete}`}
+            footer={footer}
+        >
+            {error && <FormAlert className="mb-4">{error}</FormAlert>}
 
-                {/* Header */}
-                <div className="flex items-center justify-between mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
-                    <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                        {confirmDelete ? "Delete Disk?" : editMode ? "Edit Disk" : `Disk: ${disk.disk}`}
-                    </h3>
-                    <button
-                        onClick={onClose}
-                        className="px-2 py-1 bg-[#161D22] rounded-lg hover:bg-[#1c252b] text-white text-xs transition-all shadow-sm flex items-center gap-1 cursor-pointer"
-                    >
-                        <XCircle size={14} weight="fill" className="text-white/60" />
-                        Close
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="space-y-4 md:space-y-5">
-                    {error && (
-                        <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-sm px-4 py-3 rounded-xl flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                            {error}
-                        </div>
-                    )}
-
-                    {/* Disk Name */}
+            {confirmDelete ? (
+                <p className="text-sm text-white/80">
+                    Delete <span className="font-semibold text-white">{disk.disk}</span> from your inventory? This can't be undone.
+                </p>
+            ) : (
+                <div className="space-y-4">
                     <Field label="Disk Name">
-                        <input
-                            type="text"
-                            value={local.disk}
-                            onChange={(e) => setLocal({ ...local, disk: e.target.value })}
-                            disabled={!editMode}
-                            className="input"
-                        />
+                        <input type="text" value={local.disk} onChange={(e) => setLocal({ ...local, disk: e.target.value })} readOnly={!editMode} autoCapitalize="off" spellCheck={false} className="input" />
                     </Field>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <Field label="Model">
-                            <CustomSelect
-                                value={local.model}
-                                onChange={(v) => setLocal({ ...local, model: v })}
-                                options={["SSD", "HDD", "NVME"]}
-                                disabled={!editMode}
-                            />
+                            <CustomSelect value={local.model} onChange={(v) => setLocal({ ...local, model: v })} options={["SSD", "HDD", "NVME"]} readOnly={!editMode} clearable={false} />
                         </Field>
                         <Field label="Role">
-                            <CustomSelect
-                                value={local.role}
-                                onChange={(v) => setLocal({ ...local, role: v })}
-                                options={["DATA", "OS", "BACKUP"]}
-                                disabled={!editMode}
-                            />
+                            <CustomSelect value={local.role} onChange={(v) => setLocal({ ...local, role: v })} options={["DATA", "OS", "BACKUP"]} readOnly={!editMode} clearable={false} />
                         </Field>
-                    </div>
-
-                    {/* Cluster & Total Size */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                         <Field label="Cluster">
                             <CustomSelect
                                 value={local.cluster}
                                 onChange={(v) => setLocal({ ...local, cluster: v })}
                                 options={clusters.map(c => c.cluster)}
+                                readOnly={!editMode}
+                                clearable={false}
                                 renderOption={(opt) => {
                                     const targetCluster = clusters.find(c => c.cluster === opt);
                                     return (
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: targetCluster?.color || "#69639E" }}></div>
-                                            <span>{opt}</span>
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <div className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: targetCluster?.color || DEFAULT_CLUSTER_COLOR }}></div>
+                                            <span className="truncate">{opt}</span>
                                         </div>
                                     );
                                 }}
-                                disabled={!editMode}
                             />
                         </Field>
                         <Field label="Total Size (GB)">
-                            <NumberStepper
-                                value={local.totalGB}
-                                onChange={(v) => setLocal({ ...local, totalGB: v })}
-                                min={1}
-                                className={!editMode ? "pointer-events-none opacity-50 border-none bg-transparent" : "w-full"}
-                            />
+                            <NumberStepper value={local.totalGB} onChange={(v) => setLocal({ ...local, totalGB: v })} min={1} readOnly={!editMode} unit="GB" className="w-full" />
                         </Field>
                     </div>
 
                     <Field label="Usage">
-                        <div className="bg-[#161D22] rounded-xl p-3 border border-white/5 space-y-2">
-                            <div className="flex justify-between text-xs font-mono text-white/70">
-                                <span>{fmtBytes(disk.used)} / {fmtBytes(local.totalGB * 1_000_000_000)}</span>
-                                <span>{Math.round((disk.used / (local.totalGB * 1_000_000_000)) * 100) || 0}%</span>
+                        <div className="space-y-2 rounded-xl border border-line bg-raised p-3">
+                            <div className="flex justify-between font-mono text-xs text-white/70">
+                                <span>{fmtBytes(disk.used)} / {fmtBytes(totalBytes)}</span>
+                                <span>{Math.round(usedPercent)}%</span>
                             </div>
-                            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-gradient-to-r from-[#69639E] to-[#A8C9AD]"
-                                    style={{ width: `${Math.min(100, (disk.used / (local.totalGB * 1_000_000_000)) * 100 || 0)}%` }}
-                                ></div>
+                            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                                <div className={`bar-fill h-full rounded-full ${usedPercent >= 85 ? "bg-caution" : "bg-accent"}`} style={{ width: `${Math.min(100, usedPercent)}%` }}></div>
                             </div>
                         </div>
                     </Field>
 
-                </div>
-
-                {/* Footer Actions */}
-                <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-white/5">
-                    {confirmDelete ? (
-                        <>
-                            <button
-                                onClick={() => { setConfirmDelete(false); setError(""); }}
-                                className="px-3 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleDelete}
-                                className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
-                            >
-                                Confirm Delete
-                            </button>
-                        </>
-                    ) : !editMode ? (
-                        <>
-                            <button
-                                onClick={() => setEditMode(true)}
-                                className="px-4 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                            >
-                                Edit
-                            </button>
-                            <button
-                                onClick={handleDelete}
-                                className="px-4 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs transition-all cursor-pointer"
-                            >
-                                Delete
-                            </button>
-                        </>
-                    ) : (
-                        <>
-                            <button
-                                onClick={() => {
-                                    setEditMode(false);
-                                    setLocal({
-                                        disk: disk.disk,
-                                        model: disk.model,
-                                        role: disk.role,
-                                        cluster: disk.cluster,
-                                        totalGB: (disk.total || 0) / 1_000_000_000
-                                    });
-                                    setError("");
-                                }}
-                                className="px-3 py-2 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-md cursor-pointer"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSave}
-                                disabled={saving}
-                                className="px-4 py-2 rounded-lg bg-gradient-to-r from-[#69639E] to-[#A8C9AD] opacity-90 hover:opacity-100 text-white text-xs font-bold transition-all shadow-md disabled:opacity-50 cursor-pointer"
-                            >
-                                {saving ? "Saving..." : "Save Changes"}
-                            </button>
-                        </>
+                    {!editMode && (
+                        <RelatedLinks
+                            groups={[
+                                { label: "Cluster", items: diskCluster ? [{ key: diskCluster.id, label: diskCluster.cluster, to: `/clusters?open=${diskCluster.id}`, color: diskCluster.color || DEFAULT_CLUSTER_COLOR }] : [], empty: "Not found" },
+                                { label: "Nodes", items: diskNodes.map((n) => ({ key: n.id, label: n.node, to: `/nodes?open=${n.id}` })), empty: "Not allocated to any node" },
+                            ]}
+                        />
                     )}
                 </div>
-
-            </div>
-        </div>
+            )}
+        </Dialog>
     );
-}
-
-function Field({ label, children }) {
-    return (
-        <div>
-            <div className="text-white/70 mb-2 text-xs font-medium">{label}</div>
-            {children}
-        </div>
-    );
-}
-
-function fmtBytes(bytes) {
-    const b = Number(bytes || 0);
-    const GB = 1_000_000_000;
-    const TB = 1_000_000_000_000;
-    if (b === 0) return "0 GB";
-    if (b < GB) return `${(b / 1_000_000).toFixed(0)} MB`;
-    if (b < 1000 * GB) return `${(b / GB).toFixed(b % GB === 0 ? 0 : 1)} GB`;
-    return `${(b / TB).toFixed(1)} TB`;
 }

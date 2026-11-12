@@ -57,7 +57,10 @@
     VITE_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
     VITE_FIREBASE_APP_ID=your_app_id
     VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
+    # Optional: hide sign-up on a single-user install
+    VITE_ALLOW_SIGNUP=false
     ```
+    `.env.example` lists the same keys. With sign-up hidden, also turn off sign-up in Firebase Authentication (Settings → User actions).
 
 4.  **Run Development Server**
     ```bash

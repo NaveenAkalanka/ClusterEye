@@ -2,11 +2,12 @@ import { useState } from "react";
 import { addDoc, collection } from "firebase/firestore";
 import { db, auth } from "../firebaseConfig";
 import CustomSelect from "./CustomSelect";
+import Dialog from "./Dialog";
 import NumberStepper from "./NumberStepper";
-import useDialogFocus from "./useDialogFocus";
+import { Field, FormAlert } from "./ui";
+import { DEFAULT_CLUSTER_COLOR } from "../utils/format";
 
 export default function AddContainerModal({ onClose, nodes, containers, clusters }) {
-    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
     const [selectedCluster, setSelectedCluster] = useState("");
     const [containerId, setContainerId] = useState("");
     const [name, setName] = useState("");
@@ -27,13 +28,19 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
         setError("");
 
         if (!containerId || !name || !nodeId || !port) {
-            setError("All fields are required");
+            setError("Enter a container ID and name, choose a host node, and enter a port.");
+            return;
+        }
+
+        const portNumber = Number(port);
+        if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
+            setError("Port must be a whole number from 1 to 65535.");
             return;
         }
 
         const idExists = containers.some(c => c.containerId === containerId);
         if (idExists) {
-            setError("Container ID must be unique");
+            setError(`Container ID "${containerId}" is already in use.`);
             return;
         }
 
@@ -47,7 +54,7 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
         const selectedSubnet = selectedNode ? getSubnet(selectedNode.ipAddress) : "";
 
         const portUsed = containers.some(c => {
-            if (c.port !== parseInt(port)) return false; // Port doesn't match, irrelevant
+            if (c.port !== portNumber) return false; // Port doesn't match, irrelevant
 
             const cNode = nodes.find(n => n.nodeId === c.nodeId);
             if (!cNode) return false; // Can't find node, skip check (safety)
@@ -71,124 +78,82 @@ export default function AddContainerModal({ onClose, nodes, containers, clusters
                 name: name.trim(),
                 nodeId,
                 nodeRefId: selectedNode.id,
-                port: parseInt(port) || port,
+                port: portNumber,
                 link: "",
                 createdAt: new Date().toISOString()
             });
             onClose();
         } catch (err) {
             console.error(err);
-            setError("Failed to add container");
+            setError("Could not add the container. Check your connection and try again.");
         } finally {
             setLoading(false);
         }
     };
 
+    const dirty = Boolean(containerId || name || selectedCluster || nodeId || port);
+
     return (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add container" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-[#0D100D] border border-white/10 p-4 md:p-6 rounded-2xl w-full max-w-lg max-h-[90dvh] overflow-y-auto custom-scrollbar shadow-2xl relative">
-                <h2 className="text-2xl font-bold text-white mb-6">Add Container</h2>
+        <Dialog
+            title="Add Container"
+            onClose={onClose}
+            dirty={dirty}
+            footer={
+                <>
+                    <button type="button" onClick={onClose} className="btn btn-secondary">Cancel</button>
+                    <button type="submit" form="add-container-form" disabled={loading} className="btn btn-primary">
+                        {loading ? "Adding..." : "Add Container"}
+                    </button>
+                </>
+            }
+        >
+            <form id="add-container-form" noValidate onSubmit={handleSubmit} className="flex flex-col gap-4">
+                {error && <FormAlert>{error}</FormAlert>}
 
-                {error && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm mb-6 flex items-center gap-2">
-                        <span>⚠️</span> {error}
-                    </div>
-                )}
+                <Field label="Container ID">
+                    <input type="text" value={containerId} onChange={(e) => setContainerId(e.target.value)} placeholder="e.g. c-101" autoCapitalize="off" spellCheck={false} className="input" />
+                </Field>
 
-                <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+                <Field label="Container Name">
+                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. nginx-proxy" autoCapitalize="off" spellCheck={false} className="input" />
+                </Field>
 
-                    {/* Container ID */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/50 tracking-wider">Container ID</label>
-                        <input
-                            autoFocus
-                            type="text"
-                            aria-label="Container ID"
-                            value={containerId}
-                            onChange={(e) => setContainerId(e.target.value)}
-                            placeholder="e.g. c-101"
-                            className="input"
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label="Cluster">
+                        <CustomSelect
+                            value={selectedCluster}
+                            onChange={(v) => { setSelectedCluster(v); setNodeId(""); }}
+                            options={clusters.map(c => ({ value: c.cluster, label: c.cluster }))}
+                            placeholder="Select Cluster"
+                            clearable={false}
+                            renderOption={(opt) => {
+                                const c = clusters.find(cl => cl.cluster === opt.value);
+                                return (
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-2 w-2 rounded-full" style={{ backgroundColor: c?.color || DEFAULT_CLUSTER_COLOR }} />
+                                        <span>{opt.label}</span>
+                                    </div>
+                                );
+                            }}
                         />
-                    </div>
+                    </Field>
 
-                    {/* Name */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/50 tracking-wider">Container Name</label>
-                        <input
-                            type="text"
-                            aria-label="Container name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="e.g. nginx-proxy"
-                            className="input"
+                    <Field label="Host Node">
+                        <CustomSelect
+                            value={nodeId}
+                            onChange={setNodeId}
+                            options={validNodes.map(n => ({ value: n.nodeId, label: n.node }))}
+                            placeholder={selectedCluster ? "Select Node" : "Choose Cluster First"}
+                            disabled={!selectedCluster}
+                            clearable={false}
                         />
-                    </div>
+                    </Field>
+                </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {/* Cluster Filter */}
-                        <div className="flex flex-col gap-2">
-                            <label className="text-xs font-bold text-white/50 tracking-wider">Cluster</label>
-                            <CustomSelect
-                                value={selectedCluster}
-                                onChange={(v) => { setSelectedCluster(v); setNodeId(""); }}
-                                options={clusters.map(c => ({ value: c.cluster, label: c.cluster }))}
-                                placeholder="Select Cluster"
-                                renderOption={(opt) => {
-                                    const c = clusters.find(cl => cl.cluster === opt.value);
-                                    return (
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c?.color || "#69639E" }} />
-                                            <span>{opt.label}</span>
-                                        </div>
-                                    );
-                                }}
-                            />
-                        </div>
-
-                        {/* Node */}
-                        <div className="flex flex-col gap-2">
-                            <label className="text-xs font-bold text-white/50 tracking-wider">Host Node</label>
-                            <CustomSelect
-                                value={nodeId}
-                                onChange={setNodeId}
-                                options={validNodes.map(n => ({ value: n.nodeId, label: n.node }))}
-                                placeholder={selectedCluster ? "Select Node" : "Choose Cluster First"}
-                                disabled={!selectedCluster}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Port */}
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-white/50 tracking-wider">Port</label>
-                        <NumberStepper
-                            value={port}
-                            onChange={setPort}
-                            label="Port"
-                            placeholder="e.g. 8080"
-                            className="w-full font-mono"
-                        />
-                    </div>
-
-                    <div className="flex gap-3 mt-4">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 bg-[#161D22] text-white py-3 rounded-xl font-bold hover:bg-white/10 transition-colors cursor-pointer"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="flex-1 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] text-white py-3 rounded-xl font-bold hover:shadow-[0_0_15px_rgba(105,99,158,0.4)] transition-all cursor-pointer disabled:opacity-50"
-                        >
-                            {loading ? "Adding..." : "Add Container"}
-                        </button>
-                    </div>
-
-                </form>
-            </div>
-        </div>
+                <Field label="Port">
+                    <NumberStepper value={port} onChange={setPort} min={1} max={65535} placeholder="e.g. 8080" className="w-full font-mono" />
+                </Field>
+            </form>
+        </Dialog>
     );
 }

@@ -10,24 +10,17 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebaseConfig";
-import {
-  MagnifyingGlass,
-  Funnel,
-  XCircle,
-  Plus,
-  HardDrives,
-  Database,
-  CirclesThreePlus,
-  CaretCircleRight,
-  CaretUp,
-  CaretDown
-} from "@phosphor-icons/react";
+import { CaretCircleRight, Funnel, Plus, XCircle } from "@phosphor-icons/react";
 
 import AddDiskModal from "../components/AddDiskModal";
 import DiskModal from "../components/DiskModal";
 import FilterModal from "../components/FilterModal";
 import LoadError from "../components/LoadError";
 import LoadingState from "../components/LoadingState";
+import SidebarInsight from "../components/SidebarInsight";
+import useOpenParam from "../components/useOpenParam";
+import { EmptyState, SearchField, SortHeader, StatCard, ToolButton } from "../components/ui";
+import { DEFAULT_CLUSTER_COLOR, fmtBytes, openOnRowClick, sortRecords } from "../utils/format";
 import { Link } from "react-router-dom";
 
 export default function Disks({ uid }) {
@@ -51,7 +44,7 @@ export default function Disks({ uid }) {
   const [createError, setCreateError] = useState("");
 
   // view/edit modal
-  const [viewDisk, setViewDisk] = useState(null);
+  const [viewDiskId, setViewDiskId] = useState(null);
 
   // search/filter
   const [search, setSearch] = useState("");
@@ -153,7 +146,7 @@ export default function Disks({ uid }) {
       setAddOpen(false);
     } catch (err) {
       console.error(err);
-      setCreateError("Could not create disk.");
+      setCreateError("Could not add the disk. Check your connection and try again.");
     } finally {
       setCreateSaving(false);
     }
@@ -182,27 +175,7 @@ export default function Disks({ uid }) {
       res = res.filter(d => d.role === filterRole);
     }
 
-    if (sortConfig.key) {
-      res.sort((a, b) => {
-        let A = a[sortConfig.key];
-        let B = b[sortConfig.key];
-
-        // Handle numeric fields safely
-        if (["total", "used", "free", "nodes"].includes(sortConfig.key)) {
-          A = Number(A || 0);
-          B = Number(B || 0);
-        } else {
-          A = (A || "").toString().toLowerCase();
-          B = (B || "").toString().toLowerCase();
-        }
-
-        if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
-        if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return res;
+    return sortRecords(res, sortConfig);
   }, [disks, search, filterCluster, filterModel, filterRole, sortConfig]);
 
   function handleSort(key) {
@@ -236,185 +209,148 @@ export default function Disks({ uid }) {
     }
   }, [disks]);
 
+  const diskDistribution = useMemo(() => [...disks]
+    .map((disk) => {
+      const total = Math.max(0, Number(disk.total) || 0);
+      const used = Math.max(0, Number(disk.used) || 0);
+      const percentage = total ? Math.min(100, (used / total) * 100) : 0;
+      return {
+        key: disk.id,
+        label: disk.disk || "Unnamed disk",
+        color: percentage >= 85 ? "#D6B77A" : "#A8C9AD",
+        meta: `${Math.round(percentage)}% allocated`,
+        percentage,
+        detail: `${fmtBytes(used)} / ${fmtBytes(total)}`,
+      };
+    })
+    .sort((a, b) => b.percentage - a.percentage || a.label.localeCompare(b.label)), [disks]);
+
   /* ----------------------------- UI ----------------------------- */
+  useOpenParam(disks, !loading, setViewDiskId);
+
   if (loadError) return <main className="flex-1 p-4"><LoadError onRetry={() => setRetryKey((key) => key + 1)} /></main>;
 
+  const hasFilters = Boolean(filterCluster || filterModel || filterRole);
+  const viewDisk = disks.find((d) => d.id === viewDiskId);
+  const clusterColor = (d) => clusters.find(c => c.cluster === d.cluster)?.color || DEFAULT_CLUSTER_COLOR;
+  const usedPercent = (d) => (d.total > 0 ? (Number(d.used || 0) / d.total) * 100 : 0);
+  const rowColumns = "grid-cols-[minmax(7rem,1.5fr)_3.5rem_4rem_minmax(6rem,1.1fr)_3rem_4.5rem_4.5rem_4.5rem_minmax(5.5rem,1fr)_2rem]";
+
   return (
-    <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
+    <div className="telemetry-inventory flex min-h-0 w-full flex-1 flex-col gap-3 sm:gap-4 lg:flex-row">
 
       {/* LEFT SIDEBAR */}
-      <aside className="w-full lg:w-80 bg-[#0D100D] rounded-3xl p-6 flex flex-col gap-6 shrink-0 border border-white/5 h-fit lg:h-full lg:overflow-y-auto content-scrollbar">
+      <aside className="telemetry-surface flex h-fit w-full shrink-0 flex-col gap-4 rounded-2xl border p-4 sm:p-5 lg:h-full lg:w-72 lg:overflow-y-auto">
 
-        {/* Search */}
-        <div className="relative w-full h-12 rounded-xl p-[2px] bg-gradient-to-r from-[#A8C9AD] to-[#69639E] transition-all">
-          <div className="w-full h-full bg-[#161D22] rounded-[10px] flex items-center px-4 gap-3">
-            <MagnifyingGlass size={20} className="text-[#A8C9AD]" weight="bold" />
-            <input
-              type="text"
-              placeholder="Search Disks..."
-              aria-label="Search disks"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="bg-transparent border-none outline-none text-white text-base w-full placeholder:text-white/40 h-full"
-            />
-          </div>
+        <div>
+          <h1 className="text-lg font-semibold text-white">Disks</h1>
         </div>
 
-        {/* Action Grid */}
-        <div className="grid grid-cols-5 gap-2 h-12">
-          <button
-            onClick={() => setAddOpen(true)}
-            className="col-span-3 bg-gradient-to-r from-[#69639E] to-[#A8C9AD] rounded-xl flex items-center justify-center gap-2 text-white font-bold text-xs hover:opacity-90 transition-opacity shadow-lg cursor-pointer"
-          >
+        <SearchField value={search} onChange={setSearch} label="Search disks" placeholder="Search Disks..." />
+
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setAddOpen(true)} className="btn btn-primary min-w-0 flex-1">
             <Plus size={16} weight="bold" />
-            <span>Add Disk</span>
+            Add Disk
           </button>
-          <button
-            onClick={() => setFilterOpen(true)}
-            aria-label="Filter disks"
-            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
-          >
-            <Funnel size={18} />
-          </button>
-          <button
-            onClick={clearFilters}
-            aria-label="Clear disk filters"
-            className="col-span-1 bg-[#161D22] hover:bg-[#1c252b] rounded-xl flex items-center justify-center text-white/70 hover:text-white transition-colors cursor-pointer border border-white/5"
-          >
-            <XCircle size={18} />
-          </button>
+          <ToolButton label="Filter Disks" active={hasFilters} onClick={() => setFilterOpen(true)}><Funnel size={18} /></ToolButton>
+          <ToolButton label="Clear Search and Filters" disabled={!hasFilters && !search && !sortConfig.key} onClick={clearFilters}><XCircle size={18} /></ToolButton>
         </div>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-3 lg:grid-cols-1 gap-2 lg:gap-3 lg:flex-1">
-          <StatCard label="Total Disks" value={stats.count} fill />
-          <StatCard label="Total Storage" value={stats.storage} fill />
-          <StatCard label="Total Free" value={stats.free} fill />
+        <div className="hidden grid-cols-2 gap-2 sm:grid sm:grid-cols-3 lg:grid-cols-2">
+          <StatCard label="Total Disks" value={stats.count} primary loading={loading} />
+          <StatCard label="Total Storage" value={stats.storage} loading={loading} />
+          <StatCard label="Free Capacity" value={stats.free} loading={loading} />
         </div>
+
+        <SidebarInsight
+          title="Capacity by Disk"
+          description="How much of each disk is allocated"
+          items={diskDistribution}
+          emptyMessage="Disk capacity will appear after storage is added."
+        />
       </aside>
 
       {/* RIGHT CONTENT */}
-      <section className="flex-1 bg-[#0D100D] rounded-3xl border border-white/5 flex flex-col overflow-hidden relative shadow-2xl">
-        <div className="flex-1 overflow-auto p-4 content-scrollbar">
+      <section aria-label="Disk list" className="telemetry-surface relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border">
+        <div className="flex-1 overflow-auto p-4">
           {loading ? (
             <LoadingState label="Loading disks" rows={6} />
           ) : filteredDisks.length === 0 ? (
-            <div className="flex h-full flex-col gap-3 items-center justify-center text-white/70 text-sm">
-              <p>{search || filterCluster || filterModel || filterRole ? "No disks match your filters." : clusters.length === 0 ? "Create a cluster before adding disks." : "No disks yet. Add one to define storage capacity."}</p>
-              {!search && !filterCluster && !filterModel && !filterRole && (clusters.length === 0 ? <Link to="/clusters" className="text-[#A8C9AD] underline">Create cluster</Link> : <button type="button" onClick={() => setAddOpen(true)} className="text-[#A8C9AD] underline">Add disk</button>)}
-            </div>
+            <EmptyState
+              message={search || hasFilters ? "No disks match your search and filters." : clusters.length === 0 ? "Create a cluster before adding disks." : "No disks yet. Add one to record its storage capacity."}
+              action={search || hasFilters
+                ? <button type="button" onClick={clearFilters} className="btn btn-secondary">Clear Search and Filters</button>
+                : clusters.length === 0 ? <Link to="/clusters" className="btn btn-secondary">Go to Clusters</Link>
+                : <button type="button" onClick={() => setAddOpen(true)} className="btn btn-primary">Add Disk</button>}
+            />
           ) : (
-            <div className="space-y-2">
+            <div className="stagger-rows space-y-2">
               {/* Header Row (Desktop) */}
-              <div className="hidden md:grid grid-cols-[1.5fr_1fr_1fr_1fr_0.5fr_1fr_1fr_1fr_2fr] gap-4 px-6 py-2 text-xs font-bold text-white/50 tracking-wider items-center select-none">
-                <button type="button" onClick={() => handleSort("disk")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Disk Name {sortConfig.key === "disk" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("model")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Model {sortConfig.key === "model" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("role")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Role {sortConfig.key === "role" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("cluster")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Cluster {sortConfig.key === "cluster" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("nodes")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Nodes {sortConfig.key === "nodes" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("total")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Total {sortConfig.key === "total" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("used")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Used {sortConfig.key === "used" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <button type="button" onClick={() => handleSort("free")} className="cursor-pointer hover:text-white flex items-center gap-1 group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded-sm">
-                  Free {sortConfig.key === "free" && (sortConfig.direction === "asc" ? <CaretUp weight="bold" className="text-white" /> : <CaretDown weight="bold" className="text-white" />)}
-                </button>
-                <div className="text-left cursor-default">Usage</div>
+              <div className={`mb-3 hidden items-center gap-3 px-4 xl:grid ${rowColumns}`}>
+                <SortHeader label="Disk" sortKey="disk" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Model" sortKey="model" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Role" sortKey="role" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Cluster" sortKey="cluster" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Nodes" sortKey="nodes" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Total" sortKey="total" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Allocated" sortKey="used" sortConfig={sortConfig} onSort={handleSort} />
+                <SortHeader label="Free" sortKey="free" sortConfig={sortConfig} onSort={handleSort} />
+                <div className="text-xs font-semibold text-white/70">Usage</div>
               </div>
 
               {/* Rows */}
               {filteredDisks.map(d => (
                 <div key={d.id}>
                   {/* Desktop Row */}
-                  <div className="hidden md:grid grid-cols-[1.5fr_1fr_1fr_1fr_0.5fr_1fr_1fr_1fr_2fr] gap-4 bg-[#161D22]/60 hover:bg-[#161D22] rounded-xl h-12 px-6 items-center text-white text-sm font-medium transition-all group border border-white/0 hover:border-white/5">
-                    <div className="truncate flex items-center gap-2">
-                      <HardDrives size={16} className="text-white/30" />
-                      {d.disk}
+                  <div onClick={openOnRowClick(() => setViewDiskId(d.id))} className={`hidden h-12 cursor-pointer items-center gap-3 rounded-xl border border-line bg-raised px-4 text-sm font-medium text-white transition-colors hover:border-line-strong hover:bg-raised-hover xl:grid ${rowColumns}`}>
+                    <div className="truncate" title={d.disk}>{d.disk}</div>
+                    <div className="w-fit rounded bg-white/10 px-1.5 py-0.5 text-xs font-bold text-white/90">{d.model}</div>
+                    <div className="text-xs font-normal text-white/80">{d.role}</div>
+                    <div className="flex min-w-0 items-center gap-2 font-normal text-white/80">
+                      <div className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: clusterColor(d) }}></div>
+                      <span className="truncate" title={d.cluster}>{d.cluster}</span>
                     </div>
-                    <div className="text-white/70 text-sm font-mono bg-white/5 px-2 py-0.5 rounded w-fit">{d.model}</div>
-                    <div className="text-white/70 text-sm">{d.role}</div>
-                    <div className="text-white/80 text-sm flex items-center gap-2">
-                      <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: clusters.find(c => c.cluster === d.cluster)?.color || "#69639E" }}
-                      ></div>
-                      {d.cluster}
-                    </div>
-                    <div className="text-white/60 text-sm text-center">{d.nodes || 0}</div>
-
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes(d.total)}</div>
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes(d.used || 0)}</div>
-                    <div className="text-white/70 text-sm font-mono">{fmtBytes((d.total || 0) - (d.used || 0))}</div>
-
-                    {/* Progress */}
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[#69639E] to-[#A8C9AD] transition-all duration-500 rounded-full"
-                          style={{
-                            width: `${Math.min(100, (d.used / d.total) * 100 || 0)}%`
-                          }}
-                        ></div>
+                    <div className="font-mono font-normal text-white/80">{d.nodes || 0}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes(d.total)}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes(d.used || 0)}</div>
+                    <div className="truncate font-mono text-xs font-normal text-white/80">{fmtBytes((d.total || 0) - (d.used || 0))}</div>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div className={`bar-fill h-full rounded-full transition-[width] duration-500 ${usedPercent(d) >= 85 ? "bg-caution" : "bg-accent"}`} style={{ width: `${Math.min(100, usedPercent(d))}%` }}></div>
                       </div>
-                      <div className="text-xs font-mono text-white/50 w-8 text-right">
-                        {Math.round((d.used / d.total) * 100) || 0}%
-                      </div>
-                      <button type="button"
-                        onClick={() => setViewDisk(d)}
-                        className="text-[#A8C9AD] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded"
-                        aria-label={`View ${d.disk}`}
-                      >
-                        <CaretCircleRight size={20} weight="fill" />
-                      </button>
+                      <span className="w-8 shrink-0 text-right font-mono text-xs font-normal text-white/70">{Math.round(usedPercent(d))}%</span>
                     </div>
+                    <button type="button" onClick={() => setViewDiskId(d.id)} className="row-open" aria-label={`View ${d.disk}`}>
+                      <CaretCircleRight size={20} weight="fill" />
+                    </button>
                   </div>
 
                   {/* Mobile Card */}
-                  <div className="md:hidden flex flex-col bg-[#161D22]/60 rounded-xl p-4 gap-3 text-white transition-all border border-white/5 group">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded bg-gradient-to-br from-[#161D22] to-[#69639E]/30 flex items-center justify-center border border-white/5">
-                          <HardDrives size={16} className="text-[#A8C9AD]" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-sm">{d.disk}</div>
-                          <div className="text-xs text-white/50 flex gap-2">
-                            <span>{d.model}</span>
-                            <span>•</span>
-                            <span>{d.role}</span>
-                          </div>
+                  <div onClick={openOnRowClick(() => setViewDiskId(d.id))} className="flex cursor-pointer flex-col gap-3 rounded-xl border border-line bg-raised p-3 text-white xl:hidden">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold">{d.disk}</div>
+                        <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-white/70">
+                          <span className="shrink-0">{d.model} · {d.role} ·</span>
+                          <div className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: clusterColor(d) }}></div>
+                          <span className="truncate">{d.cluster}</span>
                         </div>
                       </div>
-                      <button type="button" onClick={() => setViewDisk(d)} aria-label={`View ${d.disk}`} className="text-[#A8C9AD] p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] rounded">
-                        <CaretCircleRight size={24} weight="fill" />
+                      <button type="button" onClick={() => setViewDiskId(d.id)} aria-label={`View ${d.disk}`} className="row-open -mr-1 -mt-1">
+                        <CaretCircleRight size={20} weight="fill" />
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2 gap-x-4 text-sm text-white/70">
-                      <div className="flex items-center gap-2">
-                        Cluster:
-                        <span className="text-white flex items-center gap-1.5">
-                          <div
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ backgroundColor: clusters.find(c => c.cluster === d.cluster)?.color || "#69639E" }}
-                          ></div>
-                          {d.cluster}
-                        </span>
-                      </div>
-                      <div>Nodes: <span className="text-white">{d.nodes || 0}</span></div>
-                      <div>Used: <span className="text-white">{fmtBytes(d.used)}</span></div>
-                      <div>Free: <span className="text-white">{fmtBytes((d.total || 0) - (d.used || 0))}</span></div>
+                    <dl className="grid grid-cols-4 gap-x-3 text-xs">
+                      {[["Total", fmtBytes(d.total)], ["Allocated", fmtBytes(d.used)], ["Free", fmtBytes((d.total || 0) - (d.used || 0))], ["Nodes", d.nodes || 0]].map(([label, value]) => (
+                        <div key={label} className="min-w-0">
+                          <dt className="font-semibold text-white/70">{label}</dt>
+                          <dd className="truncate font-mono text-white/90">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div className={`bar-fill h-full rounded-full ${usedPercent(d) >= 85 ? "bg-caution" : "bg-accent"}`} style={{ width: `${Math.min(100, usedPercent(d))}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -425,79 +361,54 @@ export default function Disks({ uid }) {
       </section>
 
       {/* MODALS */}
-      <AddDiskModal
-        open={addOpen}
-        onClose={() => {
-          setAddOpen(false);
-          setDiskName("");
-          setModel("SSD");
-          setRole("DATA");
-          setCluster("");
-          setTotalGB("");
-          setCreateError("");
-        }}
-        handleCreate={handleCreate}
-        clusters={clusters}
-        disks={disks} // Ensure disks is passed
-        disk={diskName} setDisk={setDiskName}
-        model={model} setModel={setModel}
-        role={role} setRole={setRole}
-        cluster={cluster} setCluster={setCluster}
-        totalGB={totalGB} setTotalGB={setTotalGB}
-        saving={createSaving}
-        error={createError}
-      />
+      {addOpen && (
+        <AddDiskModal
+          onClose={() => {
+            setAddOpen(false);
+            setDiskName("");
+            setModel("SSD");
+            setRole("DATA");
+            setCluster("");
+            setTotalGB("");
+            setCreateError("");
+          }}
+          handleCreate={handleCreate}
+          clusters={clusters}
+          disk={diskName} setDisk={setDiskName}
+          model={model} setModel={setModel}
+          role={role} setRole={setRole}
+          cluster={cluster} setCluster={setCluster}
+          totalGB={totalGB} setTotalGB={setTotalGB}
+          saving={createSaving}
+          error={createError}
+        />
+      )}
 
       {viewDisk && (
         <DiskModal
           disk={viewDisk}
-          onClose={() => setViewDisk(null)}
+          onClose={() => setViewDiskId(null)}
           uid={uid}
           allNodes={nodes}
           clusters={clusters}
-          allDisks={disks} // Pass allDisks for validation
+          allDisks={disks}
         />
       )}
 
       {filterOpen && (
         <FilterModal
+          title="Filter Disks"
           onClose={() => setFilterOpen(false)}
           clusters={clusters}
-
-          // Active Filters for Disks
           filterCluster={filterCluster}
           setFilterCluster={setFilterCluster}
           filterModel={filterModel}
           setFilterModel={setFilterModel}
           filterRole={filterRole}
           setFilterRole={setFilterRole}
-
-          // Unused
-          filterType={null} setFilterType={null}
-          filterDisk={null} setFilterDisk={null}
         />
       )}
 
     </div>
   );
-}
-
-
-function StatCard({ label, value, fill }) {
-  return (
-    <div className={`w-full ${fill ? "flex-1" : "h-24"} bg-gradient-to-br from-[#161D22] via-[#161D22] to-[#69639E]/20 border border-white/5 rounded-xl p-4 flex flex-col justify-between shadow-md group hover:border-[#69639E]/50 transition-all`}>
-      <div className={`text-white/70 font-medium tracking-tight ${fill ? "text-sm md:text-xl" : "text-sm"}`}>{label}</div>
-      <div className={`text-white font-bold leading-none bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent ${fill ? "text-3xl md:text-7xl" : "text-3xl"}`}>{value}</div>
-    </div>
-  );
-}
-
-function fmtBytes(bytes) {
-  const b = Number(bytes || 0);
-  const GB = 1_000_000_000;
-  const TB = 1_000_000_000_000;
-  if (b === 0) return "0 GB";
-  if (b < GB) return `${(b / 1_000_000).toFixed(0)} MB`;
-  if (b < 1000 * GB) return `${(b / GB).toFixed(b % GB === 0 ? 0 : 1)} GB`;
-  return `${(b / TB).toFixed(1)} TB`;
 }

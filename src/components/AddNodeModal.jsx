@@ -1,7 +1,8 @@
-import React from "react";
+import { Plus } from "@phosphor-icons/react";
 import CustomSelect from "./CustomSelect";
+import Dialog from "./Dialog";
 import NumberStepper from "./NumberStepper";
-import useDialogFocus from "./useDialogFocus";
+import { Field, FormAlert } from "./ui";
 
 export default function AddNodeModal({
     onClose,
@@ -26,176 +27,95 @@ export default function AddNodeModal({
     error,
     saving,
 }) {
-    const { dialogRef, onDialogKeyDown } = useDialogFocus(onClose);
+    const filteredDisks = disks.filter((d) => d.cluster === cluster);
+
     return (
-        <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Add node" tabIndex={-1} onKeyDown={onDialogKeyDown} className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-            <div className="bg-[#0D100D] border border-white/10 rounded-2xl p-4 md:p-6 w-full max-w-lg max-h-[90dvh] overflow-y-auto custom-scrollbar shadow-2xl">
-                <div className="flex justify-between items-center mb-4 md:mb-6 border-b border-white/5 pb-4 md:pb-6">
-                    <h3 className="text-lg font-semibold text-white">Add New Node</h3>
-                    <button
-                        onClick={onClose}
-                        className="px-3 py-1 bg-[#161D22] rounded-lg hover:bg-[#1c252b] text-white text-xs transition-all cursor-pointer"
-                    >
-                        Close
+        <Dialog
+            title="Add Node"
+            onClose={onClose}
+            dirty={Boolean(nodeId || nodeName || cluster || allocRows.length)}
+            footer={
+                <>
+                    <button type="button" onClick={onClose} className="btn btn-secondary">Cancel</button>
+                    <button type="submit" form="add-node-form" disabled={saving} className="btn btn-primary">
+                        {saving ? "Adding..." : "Add Node"}
                     </button>
-                </div>
+                </>
+            }
+        >
+            <form id="add-node-form" noValidate onSubmit={handleCreate} className="space-y-4">
+                {error && <FormAlert>{error}</FormAlert>}
 
-                <form onSubmit={handleCreate} className="space-y-4 md:space-y-5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                        <Field label="Node ID">
-                            <input
-                                type="text"
-                                aria-label="Node ID"
-                                placeholder="Unique ID"
-                                value={nodeId}
-                                onChange={(e) => setNodeId(e.target.value)}
-                                className="input w-full"
-                                maxLength={50}
-                            />
-                        </Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <Field label="Node ID">
+                        <input type="text" placeholder="e.g. 101" value={nodeId} onChange={(e) => setNodeId(e.target.value)} autoCapitalize="off" spellCheck={false} className="input" maxLength={50} />
+                    </Field>
+                    <Field label="Node Name">
+                        <input type="text" placeholder="e.g. docker-host-01" value={nodeName} onChange={(e) => setNodeName(e.target.value)} autoCapitalize="off" spellCheck={false} className="input" maxLength={50} />
+                    </Field>
+                    <Field label="Type">
+                        <CustomSelect value={type} onChange={setType} options={["LXC", "VM"]} placeholder="Select Type" clearable={false} />
+                    </Field>
+                    <Field label="Cluster">
+                        <CustomSelect
+                            value={cluster}
+                            onChange={(val) => {
+                                setCluster(val);
+                                setAllocRows([]);
 
-                        <Field label="Node Name">
-                            <input
-                                type="text"
-                                aria-label="Node name"
-                                placeholder="Node name"
-                                value={nodeName}
-                                onChange={(e) => setNodeName(e.target.value)}
-                                className="input w-full"
-                                maxLength={50}
-                            />
-                        </Field>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-                        <Field label="Type">
-                            <CustomSelect
-                                value={type}
-                                onChange={(val) => setType(val)}
-                                options={["LXC", "VM"]}
-                                placeholder="Select Type"
-                            />
-                        </Field>
-
-                        <Field label="Cluster">
-                            <CustomSelect
-                                value={cluster}
-                                onChange={(val) => {
-                                    setCluster(val);
-                                    setAllocRows([]);
-
-                                    const cls = clusters.find((c) => c.cluster === val);
-                                    if (cls && cls.ipAddress) {
-                                        const prefix = cls.ipAddress.split(".").slice(0, 3).join(".") + ".";
-                                        setIpAddress(prefix);
-                                    }
-                                }}
-                                options={clusters.map(c => c.cluster)}
-                                placeholder="Select Cluster"
-                            />
-                        </Field>
-                    </div>
-
-                    <Field label="IP Address">
-                        <input
-                            type="text"
-                            aria-label="IP address"
-                            placeholder="IPv4 address"
-                            value={ipAddress}
-                            onChange={(e) => setIpAddress(e.target.value)}
-                            className="input w-full"
+                                const cls = clusters.find((c) => c.cluster === val);
+                                if (cls && cls.ipAddress) {
+                                    setIpAddress(cls.ipAddress.split(".").slice(0, 3).join(".") + ".");
+                                }
+                            }}
+                            options={clusters.map(c => c.cluster)}
+                            placeholder="Select Cluster"
+                            clearable={false}
                         />
                     </Field>
+                </div>
 
-                    {/* Allocations */}
-                    <div className="mt-2">
-                        <div className="flex justify-between items-center mb-2">
-                            <div className="text-white/80 font-medium text-sm">Disk Allocations</div>
-                            <button
-                                type="button"
-                                onClick={addAlloc}
-                                className="px-3 py-1 rounded-lg bg-[#161D22] hover:bg-[#1c252b] text-white text-xs transition-all shadow-sm cursor-pointer"
-                            >
-                                + Add Disk
-                            </button>
-                        </div>
+                <Field label="IP Address">
+                    <input type="text" inputMode="decimal" spellCheck={false} placeholder="e.g. 192.168.1.20" value={ipAddress} onChange={(e) => setIpAddress(e.target.value)} className="input font-mono" />
+                </Field>
 
-                        {allocRows.length === 0 ? (
-                            <div className="text-white/60 text-sm">No allocations yet.</div>
-                        ) : (
-                            <div className="space-y-2">
-                                {allocRows.map((r, i) => {
-                                    const filteredDisks = disks.filter((d) => d.cluster === cluster);
-
-                                    return (
-                                        <div key={i} className="flex flex-wrap gap-2 items-center">
-
-                                            <div className="flex-1 min-w-[200px]">
-                                                <CustomSelect
-                                                    value={r.diskId}
-                                                    onChange={(val) => changeAlloc(i, "diskId", val)}
-                                                    options={filteredDisks.map((d) => {
-                                                        const freeGB = ((d.total || 0) - (d.used || 0)) / 1_000_000_000;
-                                                        return {
-                                                            value: d.id,
-                                                            label: d.disk,
-                                                            subLabel: `${freeGB.toFixed(1)} GB free`
-                                                        };
-                                                    })}
-                                                    placeholder="Select Disk"
-                                                />
-                                            </div>
-
-                                            <div className="w-full sm:w-32">
-                                                <NumberStepper
-                                                    value={r.gb}
-                                                    onChange={(val) => changeAlloc(i, "gb", val)}
-                                                    label="Allocated GB"
-                                                    min={0}
-                                                />
-                                            </div>
-
-                                            <button
-                                                type="button"
-                                                onClick={() => removeAlloc(i)}
-                                                className="w-full sm:w-auto px-3 py-2 rounded-lg bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 text-xs transition-all cursor-pointer"
-                                            >
-                                                Remove
-                                            </button>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Error */}
-                    {error && (
-                        <div className="bg-red-600/20 text-red-200 border border-red-600/30 rounded-lg px-3 py-2 mt-3">
-                            {error}
-                        </div>
-                    )}
-
-                    <div className="flex justify-end">
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#69639E] to-[#A8C9AD] opacity-90 hover:opacity-100 text-white text-xs font-bold transition-all shadow-md disabled:opacity-50 cursor-pointer"
-                        >
-                            {saving ? "Saving…" : "Create Node"}
+                <div className="border-t border-line pt-4">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-medium text-white/80">Disk Allocations</h3>
+                        <button type="button" onClick={addAlloc} disabled={!cluster} className="btn btn-secondary h-9 px-3 text-xs">
+                            <Plus size={14} weight="bold" /> Add Disk
                         </button>
                     </div>
-                </form>
-            </div>
-        </div>
-    );
-}
 
-function Field({ label, children }) {
-    return (
-        <div>
-            <div className="text-white/50 mb-2 text-xs font-bold tracking-wider">{label}</div>
-            {children}
-        </div>
+                    {allocRows.length === 0 ? (
+                        <p className="text-sm text-white/55">{cluster ? "Add at least one disk for this node." : "Select a cluster, then add its disks."}</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {allocRows.map((r, i) => (
+                                <div key={i} className="flex flex-wrap items-center gap-2">
+                                    <div className="min-w-[200px] flex-1">
+                                        <CustomSelect
+                                            label={`Disk ${i + 1}`}
+                                            value={r.diskId}
+                                            onChange={(val) => changeAlloc(i, "diskId", val)}
+                                            options={filteredDisks.map((d) => {
+                                                const freeGB = ((d.total || 0) - (d.used || 0)) / 1_000_000_000;
+                                                return { value: d.id, label: d.disk, subLabel: `${freeGB.toFixed(1)} GB free` };
+                                            })}
+                                            placeholder="Select Disk"
+                                            clearable={false}
+                                        />
+                                    </div>
+                                    <div className="w-full sm:w-36">
+                                        <NumberStepper value={r.gb} onChange={(val) => changeAlloc(i, "gb", val)} label={`Disk ${i + 1} GB`} placeholder="GB" min={0} />
+                                    </div>
+                                    <button type="button" onClick={() => removeAlloc(i)} className="btn btn-danger w-full sm:w-auto">Remove</button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </form>
+        </Dialog>
     );
 }

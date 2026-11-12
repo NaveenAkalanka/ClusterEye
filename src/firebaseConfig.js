@@ -1,7 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -17,5 +16,12 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-export let analytics;
-isSupported().then((ok) => { if (ok) analytics = getAnalytics(app); });
+// Loaded separately: ad blockers block files named "analytics", and a blocked
+// static import would stop the whole app from starting.
+import("firebase/analytics")
+  .then(({ getAnalytics, isSupported }) => isSupported().then((ok) => ok && getAnalytics(app)))
+  .catch(() => {});
+
+// Set VITE_ALLOW_SIGNUP=false to hide sign-up. Also turn off sign-up in Firebase Authentication,
+// because hiding the page does not stop someone calling the Auth API directly.
+export const SIGNUP_ENABLED = import.meta.env.VITE_ALLOW_SIGNUP !== "false";

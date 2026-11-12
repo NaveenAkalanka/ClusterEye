@@ -12,6 +12,8 @@ export default function CustomSelect({
     label,
     renderOption,
     size = "default",
+    clearable = true,
+    readOnly = false,
 }) {
     const buttonRef = useRef(null);
     const menuRef = useRef(null);
@@ -31,17 +33,18 @@ export default function CustomSelect({
         };
     }), [options]);
 
+    const placeholderOption = useMemo(() => ({ value: "", label: placeholder, raw: "", key: "__placeholder__", placeholder: true }), [placeholder]);
     const choices = useMemo(() => [
-        { value: "", label: placeholder, raw: "", key: "__placeholder__", placeholder: true },
+        ...(clearable ? [placeholderOption] : []),
         ...formattedOptions.filter((option) => option.value !== ""),
-    ], [formattedOptions, placeholder]);
+    ], [clearable, formattedOptions, placeholderOption]);
     const preferredMenuWidth = useMemo(() => {
         const longestLabel = choices.reduce((length, option) => Math.max(length, String(option.label || "").length), 0);
         return Math.min(360, Math.max(180, longestLabel * 7.5 + 56));
     }, [choices]);
 
     const selectedIndex = choices.findIndex((option) => String(option.value) === String(value ?? ""));
-    const selectedOption = selectedIndex >= 0 ? choices[selectedIndex] : choices[0];
+    const selectedOption = selectedIndex >= 0 ? choices[selectedIndex] : placeholderOption;
 
     useEffect(() => {
         if (!open) return undefined;
@@ -99,7 +102,7 @@ export default function CustomSelect({
     }, [activeIndex, listboxId, open]);
 
     const openMenu = (direction = 1) => {
-        if (disabled) return;
+        if (disabled || choices.length === 0) return;
         const fallback = direction > 0 ? 0 : choices.length - 1;
         setActiveIndex(selectedIndex >= 0 ? selectedIndex : fallback);
         setOpen(true);
@@ -152,10 +155,14 @@ export default function CustomSelect({
         return (
             <span className="min-w-0">
                 <span className="block truncate text-white">{option.label}</span>
-                {option.subLabel && <span className="block truncate text-[11px] text-white/50 mt-0.5">{option.subLabel}</span>}
+                {option.subLabel && <span className="block truncate mt-0.5 text-xs text-white/55">{option.subLabel}</span>}
             </span>
         );
     };
+
+    if (readOnly) {
+        return <div className={`flex h-10 min-w-0 items-center text-sm text-white ${className}`}><div className="min-w-0 truncate">{renderContent(selectedOption)}</div></div>;
+    }
 
     return (
         <div className={`relative min-w-0 w-full ${size === "compact" ? "h-8 text-xs" : "h-10 text-sm"} ${className}`}>
@@ -172,17 +179,17 @@ export default function CustomSelect({
                 title={String(selectedOption.label || "")}
                 onClick={() => open ? setOpen(false) : openMenu()}
                 onKeyDown={handleKeyDown}
-                className={`flex h-full min-h-8 min-w-0 w-full items-center justify-between gap-2 rounded-xl border px-3 text-left [font-size:inherit] transition-[background-color,border-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A8C9AD] ${open
-                    ? "border-[#A8C9AD]/50 bg-[#1c252b] shadow-[0_0_0_3px_rgba(168,201,173,0.08)]"
-                    : "border-white/15 bg-[#161D22] hover:border-white/25 hover:bg-[#1c252b]"
-                    } disabled:cursor-not-allowed disabled:border-white/5 disabled:bg-[#121712] disabled:text-white/60 disabled:opacity-80`}
+                className={`flex h-full min-h-8 min-w-0 w-full items-center justify-between gap-2 rounded-xl border px-3 text-left [font-size:inherit] transition-[background-color,border-color,box-shadow] duration-200 ${open
+                    ? "border-accent bg-raised-hover shadow-[0_0_0_3px_rgba(168,201,173,0.08)]"
+                    : "border-field-line bg-field hover:border-accent/70 hover:bg-raised-hover"
+                    } disabled:cursor-not-allowed disabled:border-line disabled:bg-raised disabled:text-white/60 disabled:opacity-80`}
             >
                 <div className="min-w-0 flex-1 truncate">{renderContent(selectedOption)}</div>
                 <CaretDown
                     size={15}
                     weight="bold"
                     aria-hidden="true"
-                    className={`shrink-0 text-white/50 transition-transform duration-200 ${open ? "rotate-180 text-[#A8C9AD]" : ""}`}
+                    className={`shrink-0 text-white/50 transition-transform duration-200 ${open ? "rotate-180 text-accent" : ""}`}
                 />
             </button>
 
@@ -193,7 +200,7 @@ export default function CustomSelect({
                     role="listbox"
                     aria-label={label || placeholder}
                     style={menuStyle}
-                    className="fixed z-[200] overflow-y-auto overscroll-contain rounded-xl border border-white/15 bg-[#111611] p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.55)] backdrop-blur-xl custom-scrollbar animate-scaleIn"
+                    className="fixed z-[200] overflow-y-auto overscroll-contain rounded-xl border border-line-strong bg-raised p-1.5 shadow-[0_18px_48px_rgba(0,0,0,0.55)] animate-scaleIn"
                 >
                     {choices.map((option, index) => {
                         const selected = String(option.value) === String(value ?? "");
@@ -212,7 +219,7 @@ export default function CustomSelect({
                                 className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${active ? "bg-white/10" : "hover:bg-white/[0.06]"} ${option.placeholder ? "text-white/55" : "text-white"}`}
                             >
                                 <div className="min-w-0 flex-1">{renderContent(option)}</div>
-                                {selected && <Check size={15} weight="bold" className="shrink-0 text-[#A8C9AD]" aria-hidden="true" />}
+                                {selected && <Check size={15} weight="bold" className="shrink-0 text-accent" aria-hidden="true" />}
                             </button>
                         );
                     })}

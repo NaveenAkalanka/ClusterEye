@@ -34,6 +34,53 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/nodes/$(nodeRefId)).data.userId == request.auth.uid;
     }
 
+    // The keys a write sets: every key on create, only the changed ones on update.
+    // Limits apply to those keys, so older documents never block unrelated updates.
+    function writtenKeys() {
+      return resource == null
+        ? request.resource.data.keys()
+        : request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function textOk(field, max) {
+      return !writtenKeys().hasAny([field])
+        || (request.resource.data[field] is string && request.resource.data[field].size() <= max);
+    }
+
+    function countOk(field) {
+      return !writtenKeys().hasAny([field])
+        || (request.resource.data[field] is number && request.resource.data[field] >= 0);
+    }
+
+    function validCluster() {
+      return textOk('cluster', 100) && textOk('ipAddress', 64) && textOk('subnetMask', 64) && textOk('color', 32)
+        && countOk('nodes') && countOk('disks') && countOk('total') && countOk('used') && countOk('free');
+    }
+
+    function validNode() {
+      return textOk('nodeId', 100) && textOk('node', 100) && textOk('type', 16) && textOk('cluster', 100)
+        && textOk('ipAddress', 64) && textOk('username', 100) && textOk('link', 2048)
+        && (!writtenKeys().hasAny(['allocations'])
+          || (request.resource.data.allocations is list && request.resource.data.allocations.size() <= 64))
+        && (!writtenKeys().hasAny(['allocated'])
+          || (request.resource.data.allocated is number && request.resource.data.allocated >= 0));
+    }
+
+    function validDisk() {
+      return textOk('disk', 100) && textOk('model', 16) && textOk('role', 16) && textOk('cluster', 100)
+        && countOk('free') && countOk('nodes');
+    }
+
+    function validContainer() {
+      return textOk('containerId', 100) && textOk('name', 100) && textOk('nodeId', 100) && textOk('link', 2048);
+    }
+
+    // A node may take a new IP only if ipIndex/{uid}_{ip} names it after this write.
+    // Claims can't be overwritten, so the same IP can't be saved twice.
+    function ipClaimedBy(nodeId) {
+      return getAfter(/databases/$(database)/documents/ipIndex/$(request.auth.uid + '_' + request.resource.data.ipAddress)).data.nodeRef == nodeId;
+    }
+
     function validDiskCapacity() {
       return request.resource.data.total is number
         && request.resource.data.used is number
@@ -48,12 +95,13 @@ service cloud.firestore {
       allow create: if isOwner(request.resource.data.userId)
         && request.resource.data.keys().hasAll(['cluster', 'ipAddress', 'subnetMask', 'color'])
         && request.resource.data.keys().hasOnly(['userId', 'cluster', 'ipAddress', 'subnetMask', 'color', 'nodes', 'disks', 'total', 'used', 'free', 'createdAt', 'updatedAt'])
-        && request.resource.data.cluster is string;
+        && validCluster();
       // Allow read, update, delete if the existing document's userId matches the auth uid
       // For updates, we also ensure the user isn't trying to change the userId to someone else
       allow read, delete: if isOwner(resource.data.userId);
       allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
-        && changedOnly(['cluster', 'ipAddress', 'subnetMask', 'color', 'nodes', 'disks', 'total', 'used', 'free', 'updatedAt']);
+        && changedOnly(['cluster', 'ipAddress', 'subnetMask', 'color', 'nodes', 'disks', 'total', 'used', 'free', 'updatedAt'])
+        && validCluster();
     }
 
     // Rules for Nodes
@@ -61,16 +109,41 @@ service cloud.firestore {
       allow create: if isOwner(request.resource.data.userId)
         && request.resource.data.keys().hasAll(['nodeId', 'node', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated'])
         && request.resource.data.keys().hasOnly(['userId', 'nodeId', 'node', 'type', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated', 'username', 'link', 'createdAt', 'updatedAt'])
-        && request.resource.data.allocations is list
-        && request.resource.data.allocated is number
-        && request.resource.data.allocated >= 0
+        && validNode()
+        && ipClaimedBy(nodeId)
         && ownsCluster(request.resource.data.clusterId);
       allow read, delete: if isOwner(resource.data.userId);
       allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
         && changedOnly(['nodeId', 'node', 'type', 'cluster', 'clusterId', 'ipAddress', 'allocations', 'allocated', 'username', 'link', 'updatedAt', 'password'])
         && noPasswordWrite()
+        && validNode()
+        && (!writtenKeys().hasAny(['ipAddress']) || ipClaimedBy(nodeId))
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clusterId'])
           || ownsCluster(request.resource.data.clusterId));
+    }
+
+    // One document per node IP, keyed {uid}_{ip}, naming the node that holds it.
+    match /ipIndex/{key} {
+      function nodePath(id) {
+        return /databases/$(database)/documents/nodes/$(id);
+      }
+      // A key starts with the owner's uid, so reading an unclaimed IP inside a transaction is allowed.
+      allow get: if request.auth != null && key.matches(request.auth.uid + '_.+');
+      allow list: if request.auth != null && resource.data.userId == request.auth.uid;
+      // Only a node owned by this user that holds the IP after the write can claim it.
+      allow create: if isOwner(request.resource.data.userId)
+        && request.resource.data.keys().hasOnly(['userId', 'ip', 'nodeRef'])
+        && request.resource.data.ip is string
+        && request.resource.data.nodeRef is string
+        && key == request.auth.uid + '_' + request.resource.data.ip
+        && existsAfter(nodePath(request.resource.data.nodeRef))
+        && getAfter(nodePath(request.resource.data.nodeRef)).data.userId == request.auth.uid
+        && getAfter(nodePath(request.resource.data.nodeRef)).data.ipAddress == request.resource.data.ip;
+      allow update: if false;
+      // A claim can go only once its node no longer holds the IP.
+      allow delete: if isOwner(resource.data.userId)
+        && (!existsAfter(nodePath(resource.data.nodeRef))
+          || getAfter(nodePath(resource.data.nodeRef)).data.ipAddress != resource.data.ip);
     }
 
     // Rules for Disks
@@ -79,10 +152,13 @@ service cloud.firestore {
         && request.resource.data.keys().hasAll(['disk', 'cluster', 'clusterId', 'total', 'used'])
         && request.resource.data.keys().hasOnly(['userId', 'disk', 'model', 'role', 'cluster', 'clusterId', 'total', 'used', 'free', 'nodes', 'createdAt', 'updatedAt'])
         && ownsCluster(request.resource.data.clusterId)
-        && validDiskCapacity();
+        && validDisk()
+        && validDiskCapacity()
+        && request.resource.data.used == 0;
       allow read, delete: if isOwner(resource.data.userId);
       allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
         && changedOnly(['disk', 'model', 'role', 'cluster', 'clusterId', 'total', 'used', 'free', 'nodes', 'updatedAt'])
+        && validDisk()
         && validDiskCapacity()
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['clusterId'])
           || ownsCluster(request.resource.data.clusterId));
@@ -96,11 +172,15 @@ service cloud.firestore {
         && request.resource.data.port is int
         && request.resource.data.port > 0
         && request.resource.data.port <= 65535
+        && validContainer()
         && ownsNode(request.resource.data.nodeRefId);
       allow read, delete: if isOwner(resource.data.userId);
       allow update: if isOwner(resource.data.userId) && isOwner(request.resource.data.userId)
         && changedOnly(['containerId', 'name', 'nodeId', 'nodeRefId', 'port', 'link', 'updatedAt', 'password'])
         && noPasswordWrite()
+        && validContainer()
+        && (!writtenKeys().hasAny(['port'])
+          || (request.resource.data.port is int && request.resource.data.port > 0 && request.resource.data.port <= 65535))
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['nodeRefId'])
           || ownsNode(request.resource.data.nodeRefId));
     }
