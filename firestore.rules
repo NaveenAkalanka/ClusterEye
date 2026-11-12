@@ -38,7 +38,7 @@ service cloud.firestore {
     // Limits apply to those keys, so older documents never block unrelated updates.
     function writtenKeys() {
       return resource == null
-        ? request.resource.data.keys()
+        ? request.resource.data.keys().toSet()
         : request.resource.data.diff(resource.data).affectedKeys();
     }
 
